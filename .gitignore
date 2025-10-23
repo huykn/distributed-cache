@@ -1,0 +1,10 @@
+.env
+cover.html
+cover.out
+cmd/test/*
+__debug_bin*
+.idea/*
+.qodo
+
+tmp/
+bin/
