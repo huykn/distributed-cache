@@ -1,5 +1,7 @@
 # Distributed Cache Library
 
+[![build workflow](https://github.com/huykn/distributed-cache/actions/workflows/go.yml/badge.svg)](https://github.com/huykn/distributed-cache/actions)
+[![PkgGoDev](https://pkg.go.dev/badge/github.com/huykn/distributed-cache)](https://pkg.go.dev/github.com/huykn/distributed-cache?tab=doc)
 [![GitHub License](https://img.shields.io/github/license/huykn/distributed-cache)](https://github.com/huykn/distributed-cache?tab=readme-ov-file#license)
 [![GitHub Repo stars](https://img.shields.io/github/stars/huykn/distributed-cache)](https://github.com/huykn/distributed-cache/stargazers)
 [![GitHub commit activity](https://img.shields.io/github/commit-activity/m/huykn/distributed-cache)](https://github.com/huykn/distributed-cache/commits/main/)
