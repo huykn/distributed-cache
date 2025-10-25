@@ -28,55 +28,82 @@ A high-performance, distributed cache library for Go that synchronizes local LFU
 The distributed-cache library uses a two-level caching architecture with local in-process caches synchronized via Redis pub/sub:
 
 ```mermaid
-graph TB
-    subgraph "Application Layer"
-        App1[Application Pod A]
-        App2[Application Pod B]
-        App3[Application Pod C]
+sequenceDiagram
+    participant AppA as Application (Pod A)
+    participant CacheA as SyncedCache (Pod A)
+    participant LocalA as Local Cache (Pod A)
+    participant Serializer as Marshaller
+    participant Redis as Redis Store
+    participant PubSub as Redis Pub/Sub
+    participant CacheB as SyncedCache (Pod B)
+    participant LocalB as Local Cache (Pod B)
+    participant AppB as Application (Pod B)
+
+    Note over AppA,AppB: 1. Cache Write Flow - Pod A writes & syncs to all pods
+    AppA->>CacheA: Set(key, value)
+    CacheA->>Serializer: Marshal(value)
+    Serializer-->>CacheA: serialized data
+    CacheA->>LocalA: Set(key, data)
+    CacheA->>Redis: SET key data
+    Redis-->>CacheA: OK
+    CacheA->>PubSub: PUBLISH cache:sync {key, data}
+    CacheA-->>AppA: Success
+
+    Note over PubSub,LocalB: Other pods receive sync message with data
+    PubSub->>CacheB: Sync message {key, data}
+    CacheB->>LocalB: Set(key, data)
+    Note over LocalB: Local cache synced!<br/>Ready to serve
+
+    Note over AppA,AppB: 2. Cache Read from Pod B - Served from local cache
+    AppB->>CacheB: Get(key)
+    CacheB->>LocalB: Get(key)
+    LocalB-->>CacheB: cached data ✓
+    CacheB->>Serializer: Unmarshal(data)
+    Serializer-->>CacheB: value
+    CacheB-->>AppB: value (from local, no Redis/DB query!)
+
+    Note over AppA,AppB: 3. Cache Miss Flow - Pod A fetches & syncs to all pods
+    AppA->>CacheA: Get(key)
+    CacheA->>LocalA: Get(key)
+    LocalA-->>CacheA: nil (miss)
+    CacheA->>Redis: GET key
+    alt Data exists in Redis
+        Redis-->>CacheA: data
+    else Data not in Redis (fetch from DB)
+        Redis-->>CacheA: nil
+        Note over CacheA: Fetch from DB (app logic)
+        CacheA->>Serializer: Marshal(value from DB)
+        Serializer-->>CacheA: serialized data
+        CacheA->>Redis: SET key data
     end
+    CacheA->>LocalA: Set(key, data)
+    CacheA->>PubSub: PUBLISH cache:sync {key, data}
+    Note over PubSub: Broadcast data to all pods
+    PubSub->>CacheB: Sync message {key, data}
+    CacheB->>LocalB: Set(key, data)
+    Note over LocalB: Pod B now has the data!
+    CacheA->>Serializer: Unmarshal(data)
+    Serializer-->>CacheA: value
+    CacheA-->>AppA: value
 
-    subgraph "Pod A"
-        App1 --> Cache1[SyncedCache API]
-        Cache1 --> Local1[Local Cache<br/>LFU/LRU]
-        Cache1 --> Serializer1[Marshaller<br/>JSON/MessagePack]
-        Cache1 --> Logger1[Logger]
-    end
+    Note over AppA,AppB: 4. Next request to Pod B - Instant response
+    AppB->>CacheB: Get(key)
+    CacheB->>LocalB: Get(key)
+    LocalB-->>CacheB: cached data ✓
+    CacheB->>Serializer: Unmarshal(data)
+    Serializer-->>CacheB: value
+    CacheB-->>AppB: value (instant, from local!)
 
-    subgraph "Pod B"
-        App2 --> Cache2[SyncedCache API]
-        Cache2 --> Local2[Local Cache<br/>LFU/LRU]
-        Cache2 --> Serializer2[Marshaller<br/>JSON/MessagePack]
-        Cache2 --> Logger2[Logger]
-    end
-
-    subgraph "Pod C"
-        App3 --> Cache3[SyncedCache API]
-        Cache3 --> Local3[Local Cache<br/>LFU/LRU]
-        Cache3 --> Serializer3[Marshaller<br/>JSON/MessagePack]
-        Cache3 --> Logger3[Logger]
-    end
-
-    subgraph "Redis Layer"
-        Redis[(Redis Store<br/>Persistent Cache)]
-        PubSub[Redis Pub/Sub<br/>cache:invalidate]
-    end
-
-    Cache1 <--> Redis
-    Cache2 <--> Redis
-    Cache3 <--> Redis
-
-    Cache1 <--> PubSub
-    Cache2 <--> PubSub
-    Cache3 <--> PubSub
-
-    style Local1 fill:#e1f5ff
-    style Local2 fill:#e1f5ff
-    style Local3 fill:#e1f5ff
-    style Redis fill:#ffebee
-    style PubSub fill:#fff3e0
-    style Cache1 fill:#f3e5f5
-    style Cache2 fill:#f3e5f5
-    style Cache3 fill:#f3e5f5
+    Note over AppA,AppB: 5. Cache Delete Flow - Invalidate all pods
+    AppA->>CacheA: Delete(key)
+    CacheA->>LocalA: Delete(key)
+    CacheA->>Redis: DEL key
+    Redis-->>CacheA: OK
+    CacheA->>PubSub: PUBLISH cache:invalidate key
+    CacheA-->>AppA: Success
+    PubSub->>CacheB: Invalidation message (key)
+    CacheB->>LocalB: Delete(key)
+    Note over LocalB: Cache invalidated
 ```
 
 ### Key Components
