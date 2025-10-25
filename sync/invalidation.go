@@ -5,8 +5,9 @@ import (
 	"encoding/json"
 	"sync"
 
-	"github.com/huykn/distributed-cache/types"
 	"github.com/redis/go-redis/v9"
+
+	"github.com/huykn/distributed-cache/types"
 )
 
 // InvalidationEvent is an alias for types.InvalidationEvent

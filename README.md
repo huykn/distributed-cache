@@ -3,7 +3,8 @@
 [![GitHub License](https://img.shields.io/github/license/huykn/distributed-cache)](https://github.com/huykn/distributed-cache?tab=readme-ov-file#license)
 [![GitHub Repo stars](https://img.shields.io/github/stars/huykn/distributed-cache)](https://github.com/huykn/distributed-cache/stargazers)
 [![GitHub commit activity](https://img.shields.io/github/commit-activity/m/huykn/distributed-cache)](https://github.com/huykn/distributed-cache/commits/main/)
-[![Go Report Card](https://img.shields.io/badge/go%20report-A%2B-brightgreen)](https://goreportcard.com/report/github.com/dgraph-io/distributed-cache)
+[![Go Report Card](https://img.shields.io/badge/go%20report-A%2B-brightgreen)](https://goreportcard.com/report/github.com/huykn/distributed-cache)
+[![codecov](https://codecov.io/github/huykn/distributed-cache/graph/badge.svg?token=NZBEQ9QGS7)](https://codecov.io/github/huykn/distributed-cache)
 
 
 A high-performance, distributed cache library for Go that synchronizes local LFU/LRU caches across multiple service instances using Redis as a backing store and pub/sub for set/invalidation events.

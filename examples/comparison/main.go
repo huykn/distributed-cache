@@ -160,7 +160,10 @@ func demonstrateLFU() {
 	// Add users and access with different frequencies
 	for i := 1; i <= 3; i++ {
 		user := User{ID: i, Name: fmt.Sprintf("User%d", i), Email: fmt.Sprintf("user%d@example.com", i)}
-		cache.Set(ctx, fmt.Sprintf("user:%d", i), user)
+		err := cache.Set(ctx, fmt.Sprintf("user:%d", i), user)
+		if err != nil {
+			log.Printf("Error setting user %d: %v", i, err)
+		}
 	}
 
 	// Access User1 frequently
@@ -202,7 +205,10 @@ func demonstrateLRU() {
 	// Add users
 	for i := 1; i <= 3; i++ {
 		user := User{ID: i, Name: fmt.Sprintf("User%d", i), Email: fmt.Sprintf("user%d@example.com", i)}
-		cache.Set(ctx, fmt.Sprintf("user:%d", i), user)
+		err := cache.Set(ctx, fmt.Sprintf("user:%d", i), user)
+		if err != nil {
+			log.Printf("Error setting user %d: %v", i, err)
+		}
 	}
 
 	// Access in specific order

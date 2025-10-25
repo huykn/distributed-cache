@@ -5,8 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/huykn/distributed-cache/types"
 	"github.com/redis/go-redis/v9"
+
+	"github.com/huykn/distributed-cache/types"
 )
 
 func setupRedisClient(t *testing.T) *redis.Client {
