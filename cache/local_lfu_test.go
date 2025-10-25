@@ -62,6 +62,7 @@ func TestLFUCacheDelete(t *testing.T) {
 	defer cache.Close()
 
 	cache.Set("key1", "value1", 1)
+	time.Sleep(10 * time.Millisecond) // Wait for async processing
 	cache.Delete("key1")
 
 	_, found := cache.Get("key1")
@@ -110,5 +111,41 @@ func TestLFUCacheMetrics(t *testing.T) {
 
 	if metrics.Misses != 1 {
 		t.Fatalf("Expected 1 miss, got %d", metrics.Misses)
+	}
+}
+
+// TestLFUCacheNewWithInvalidConfig tests NewLFUCache with invalid configuration
+func TestLFUCacheNewWithInvalidConfig(t *testing.T) {
+	// Test with zero NumCounters - Ristretto should reject this
+	config := LocalCacheConfig{
+		NumCounters:        0,
+		MaxCost:            1 << 30,
+		BufferItems:        64,
+		IgnoreInternalCost: false,
+	}
+
+	_, err := NewLFUCache(config)
+	if err == nil {
+		t.Fatal("Expected error when creating cache with zero NumCounters")
+	}
+}
+
+// TestLFUCacheFactory tests the LFU cache factory
+func TestLFUCacheFactory(t *testing.T) {
+	config := DefaultLocalCacheConfig()
+	factory := NewLFUCacheFactory(config)
+
+	if factory == nil {
+		t.Fatal("Factory should not be nil")
+	}
+
+	cache, err := factory.Create()
+	if err != nil {
+		t.Fatalf("Failed to create cache from factory: %v", err)
+	}
+	defer cache.Close()
+
+	if cache == nil {
+		t.Fatal("Cache should not be nil")
 	}
 }

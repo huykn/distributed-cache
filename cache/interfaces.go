@@ -131,6 +131,17 @@ type Synchronizer interface {
 // InvalidationEvent is an alias for types.InvalidationEvent for backward compatibility
 type InvalidationEvent = types.InvalidationEvent
 
+// Action is an alias for types.Action for backward compatibility
+type Action = types.Action
+
+// Action constants for cache operations
+const (
+	ActionSet        = types.Set
+	ActionInvalidate = types.Invalidate
+	ActionDelete     = types.Delete
+	ActionClear      = types.Clear
+)
+
 // Stats represents cache statistics.
 type Stats struct {
 	LocalHits     int64

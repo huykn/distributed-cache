@@ -128,3 +128,99 @@ func TestLocalCacheConfigValidation(t *testing.T) {
 		t.Fatalf("Expected BufferItems to be 64, got %d", config.BufferItems)
 	}
 }
+
+// TestOptionsValidateEmptyInvalidationChannel tests validation with empty InvalidationChannel
+func TestOptionsValidateEmptyInvalidationChannel(t *testing.T) {
+	opts := DefaultOptions()
+	opts.InvalidationChannel = ""
+
+	err := opts.Validate()
+	if err == nil {
+		t.Fatal("Expected error for empty InvalidationChannel")
+	}
+
+	if err != ErrInvalidConfig {
+		t.Fatalf("Expected ErrInvalidConfig, got %v", err)
+	}
+}
+
+// TestOptionsValidateNegativeNumCounters tests validation with negative NumCounters
+func TestOptionsValidateNegativeNumCounters(t *testing.T) {
+	opts := DefaultOptions()
+	opts.LocalCacheConfig.NumCounters = -1
+
+	err := opts.Validate()
+	if err == nil {
+		t.Fatal("Expected error for negative NumCounters")
+	}
+
+	if err != ErrInvalidConfig {
+		t.Fatalf("Expected ErrInvalidConfig, got %v", err)
+	}
+}
+
+// TestOptionsValidateZeroNumCounters tests validation with zero NumCounters
+func TestOptionsValidateZeroNumCounters(t *testing.T) {
+	opts := DefaultOptions()
+	opts.LocalCacheConfig.NumCounters = 0
+
+	err := opts.Validate()
+	if err == nil {
+		t.Fatal("Expected error for zero NumCounters")
+	}
+
+	if err != ErrInvalidConfig {
+		t.Fatalf("Expected ErrInvalidConfig, got %v", err)
+	}
+}
+
+// TestOptionsValidateNegativeMaxCost tests validation with negative MaxCost
+func TestOptionsValidateNegativeMaxCost(t *testing.T) {
+	opts := DefaultOptions()
+	opts.LocalCacheConfig.MaxCost = -1
+
+	err := opts.Validate()
+	if err == nil {
+		t.Fatal("Expected error for negative MaxCost")
+	}
+
+	if err != ErrInvalidConfig {
+		t.Fatalf("Expected ErrInvalidConfig, got %v", err)
+	}
+}
+
+// TestOptionsValidateZeroMaxCost tests validation with zero MaxCost
+func TestOptionsValidateZeroMaxCost(t *testing.T) {
+	opts := DefaultOptions()
+	opts.LocalCacheConfig.MaxCost = 0
+
+	err := opts.Validate()
+	if err == nil {
+		t.Fatal("Expected error for zero MaxCost")
+	}
+
+	if err != ErrInvalidConfig {
+		t.Fatalf("Expected ErrInvalidConfig, got %v", err)
+	}
+}
+
+// TestCacheErrorError tests the Error() method of cacheError
+func TestCacheErrorError(t *testing.T) {
+	err := NewError("test error message")
+	if err == nil {
+		t.Fatal("NewError should return an error")
+	}
+
+	errMsg := err.Error()
+	if errMsg != "test error message" {
+		t.Fatalf("Expected 'test error message', got '%s'", errMsg)
+	}
+}
+
+// TestErrInvalidConfigMessage tests the error message of ErrInvalidConfig
+func TestErrInvalidConfigMessage(t *testing.T) {
+	errMsg := ErrInvalidConfig.Error()
+	if errMsg != "invalid cache configuration" {
+		t.Fatalf("Expected 'invalid cache configuration', got '%s'", errMsg)
+	}
+}

@@ -18,7 +18,6 @@ type SyncedCache struct {
 	logger       Logger
 	options      Options
 	closed       int32
-	mu           sync.RWMutex
 	stats        Stats
 	statsMutex   sync.RWMutex
 }
@@ -205,14 +204,14 @@ func (sc *SyncedCache) setInternal(ctx context.Context, key string, value any, i
 		event = InvalidationEvent{
 			Key:    key,
 			Sender: sc.options.PodID,
-			Action: "invalidate",
+			Action: ActionInvalidate,
 		}
 	} else {
 		// Propagation mode: other pods will update their local cache with the value
 		event = InvalidationEvent{
 			Key:    key,
 			Sender: sc.options.PodID,
-			Action: "set",
+			Action: ActionSet,
 			Value:  data,
 		}
 	}
@@ -266,7 +265,7 @@ func (sc *SyncedCache) Delete(ctx context.Context, key string) error {
 	event := InvalidationEvent{
 		Key:    key,
 		Sender: sc.options.PodID,
-		Action: "delete",
+		Action: ActionDelete,
 	}
 	if err := sc.synchronizer.Publish(ctx, event); err != nil {
 		if sc.options.OnError != nil {
@@ -317,7 +316,7 @@ func (sc *SyncedCache) Clear(ctx context.Context) error {
 	event := InvalidationEvent{
 		Key:    "*",
 		Sender: sc.options.PodID,
-		Action: "clear",
+		Action: ActionClear,
 	}
 	if err := sc.synchronizer.Publish(ctx, event); err != nil {
 		if sc.options.OnError != nil {
@@ -372,7 +371,7 @@ func (sc *SyncedCache) handleInvalidation(event InvalidationEvent) {
 	}
 
 	switch event.Action {
-	case "set":
+	case ActionSet:
 		// Propagate the value to local cache
 		if len(event.Value) > 0 {
 			var value any
@@ -391,7 +390,7 @@ func (sc *SyncedCache) handleInvalidation(event InvalidationEvent) {
 			}
 		}
 
-	case "invalidate", "delete":
+	case ActionInvalidate, ActionDelete:
 		// Remove from local cache
 		sc.local.Delete(event.Key)
 		atomic.AddInt64(&sc.stats.Invalidations, 1)
@@ -399,7 +398,7 @@ func (sc *SyncedCache) handleInvalidation(event InvalidationEvent) {
 			sc.logger.Debug("Sync: deleted key from local cache", "key", event.Key, "action", event.Action, "sender", event.Sender)
 		}
 
-	case "clear":
+	case ActionClear:
 		// Clear entire local cache
 		sc.local.Clear()
 		atomic.AddInt64(&sc.stats.Invalidations, 1)

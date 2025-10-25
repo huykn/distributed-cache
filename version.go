@@ -1,7 +1,7 @@
 package distributedcache
 
 // Version is the current version of the distributed-cache library.
-const Version = "1.0.0"
+const Version = "v1.0.0"
 
 // VersionInfo provides version information.
 type VersionInfo struct {
