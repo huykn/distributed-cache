@@ -72,6 +72,12 @@ type Options struct {
 
 	// OnError is called when an error occurs in background operations.
 	OnError func(error)
+
+	// ReaderCanSetToRedis controls whether reader nodes are allowed to write data to Redis.
+	// When false (default), reader nodes will only update local cache but NOT write to Redis.
+	// When true, reader nodes can write data to Redis (legacy behavior).
+	// This prevents stale data from readers overwriting fresh data in Redis.
+	ReaderCanSetToRedis bool
 }
 
 // DefaultOptions returns default cache options.
@@ -89,6 +95,7 @@ func DefaultOptions() Options {
 		Marshaller:          nil, // Will default to JSON in New()
 		Logger:              nil, // Will default to no-op in New()
 		DebugMode:           false,
+		ReaderCanSetToRedis: false, // Default: readers cannot write to Redis
 	}
 }
 

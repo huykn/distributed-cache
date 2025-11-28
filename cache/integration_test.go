@@ -1,5 +1,4 @@
 //go:build integration
-// +build integration
 
 package cache
 
@@ -14,6 +13,7 @@ func TestIntegrationTwoLevelCache(t *testing.T) {
 	opts1 := DefaultOptions()
 	opts1.PodID = "pod-1"
 	opts1.RedisAddr = "localhost:6379"
+	opts1.ReaderCanSetToRedis = true
 
 	c1, err := New(opts1)
 	if err != nil {
@@ -50,6 +50,7 @@ func TestIntegrationTwoLevelCache(t *testing.T) {
 	opts2 := DefaultOptions()
 	opts2.PodID = "pod-2"
 	opts2.RedisAddr = "localhost:6379"
+	opts2.ReaderCanSetToRedis = true
 
 	c2, err := New(opts2)
 	if err != nil {
@@ -73,6 +74,7 @@ func TestIntegrationCacheInvalidation(t *testing.T) {
 	opts1 := DefaultOptions()
 	opts1.PodID = "pod-1"
 	opts1.RedisAddr = "localhost:6379"
+	opts1.ReaderCanSetToRedis = true
 
 	c1, err := New(opts1)
 	if err != nil {
@@ -83,6 +85,7 @@ func TestIntegrationCacheInvalidation(t *testing.T) {
 	opts2 := DefaultOptions()
 	opts2.PodID = "pod-2"
 	opts2.RedisAddr = "localhost:6379"
+	opts2.ReaderCanSetToRedis = true
 
 	c2, err := New(opts2)
 	if err != nil {
@@ -132,6 +135,7 @@ func TestIntegrationMultipleOperations(t *testing.T) {
 	opts := DefaultOptions()
 	opts.PodID = "test-pod"
 	opts.RedisAddr = "localhost:6379"
+	opts.ReaderCanSetToRedis = true
 
 	c, err := New(opts)
 	if err != nil {

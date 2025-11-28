@@ -182,15 +182,22 @@ func (sc *SyncedCache) setInternal(ctx context.Context, key string, value any, i
 		return err
 	}
 
-	// Set in Redis
-	if err := sc.store.Set(ctx, key, data); err != nil {
-		if sc.options.OnError != nil {
-			sc.options.OnError(err)
+	// ReaderCanSetToRedis prevents reader nodes from overwriting data in Redis with potentially stale values
+	if sc.options.ReaderCanSetToRedis {
+		// Set in Redis
+		if err := sc.store.Set(ctx, key, data); err != nil {
+			if sc.options.OnError != nil {
+				sc.options.OnError(err)
+			}
+			if sc.options.DebugMode {
+				sc.logger.Error("Set: failed to store in remote cache", "key", key, "error", err)
+			}
+			return err
 		}
+	} else {
 		if sc.options.DebugMode {
-			sc.logger.Error("Set: failed to store in remote cache", "key", key, "error", err)
+			sc.logger.Debug("Set: skipping Redis write (ReaderCanSetToRedis=false)", "key", key)
 		}
-		return err
 	}
 
 	if sc.options.DebugMode {

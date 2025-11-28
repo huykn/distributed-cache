@@ -3,6 +3,8 @@ run:
   timeout: 5m
   tests: false
 linters:
+  enable:
+    - unused
   settings:
     staticcheck:
       checks:

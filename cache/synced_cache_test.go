@@ -94,6 +94,7 @@ func TestNewSyncedCache(t *testing.T) {
 	opts := DefaultOptions()
 	opts.PodID = "test-pod"
 	opts.RedisAddr = "localhost:6379"
+	opts.ReaderCanSetToRedis = true
 
 	c, err := New(opts)
 	if err != nil {
@@ -110,6 +111,7 @@ func TestSyncedCacheSet(t *testing.T) {
 	opts := DefaultOptions()
 	opts.PodID = "test-pod"
 	opts.RedisAddr = "localhost:6379"
+	opts.ReaderCanSetToRedis = true
 
 	c, err := New(opts)
 	if err != nil {
@@ -135,6 +137,43 @@ func TestSyncedCacheGet(t *testing.T) {
 	opts := DefaultOptions()
 	opts.PodID = "test-pod"
 	opts.RedisAddr = "localhost:6379"
+	opts.ReaderCanSetToRedis = true
+
+	c, err := New(opts)
+	if err != nil {
+		t.Fatalf("Failed to create cache: %v", err)
+	}
+	defer c.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	testValue := "test-value"
+	key := "test:get"
+
+	// Set value
+	err = c.Set(ctx, key, testValue)
+	if err != nil {
+		t.Fatalf("Failed to set value: %v", err)
+	}
+
+	// Get value
+	value, found := c.Get(ctx, key)
+	if !found {
+		t.Fatal("Value should be found")
+	}
+
+	if value != testValue {
+		t.Fatalf("Expected %v, got %v", testValue, value)
+	}
+}
+
+func TestSyncedCacheGetReaderCannotSetToRedis(t *testing.T) {
+	opts := DefaultOptions()
+	opts.PodID = "test-pod"
+	opts.RedisAddr = "localhost:6379"
+	opts.ReaderCanSetToRedis = false
+	opts.DebugMode = true
 
 	c, err := New(opts)
 	if err != nil {
@@ -169,6 +208,7 @@ func TestSyncedCacheDelete(t *testing.T) {
 	opts := DefaultOptions()
 	opts.PodID = "test-pod"
 	opts.RedisAddr = "localhost:6379"
+	opts.ReaderCanSetToRedis = true
 
 	c, err := New(opts)
 	if err != nil {
@@ -205,6 +245,7 @@ func TestSyncedCacheClear(t *testing.T) {
 	opts := DefaultOptions()
 	opts.PodID = "test-pod"
 	opts.RedisAddr = "localhost:6379"
+	opts.ReaderCanSetToRedis = true
 
 	c, err := New(opts)
 	if err != nil {
@@ -235,6 +276,7 @@ func TestSyncedCacheStats(t *testing.T) {
 	opts := DefaultOptions()
 	opts.PodID = "test-pod"
 	opts.RedisAddr = "localhost:6379"
+	opts.ReaderCanSetToRedis = true
 
 	c, err := New(opts)
 	if err != nil {
@@ -252,6 +294,7 @@ func TestSyncedCacheClose(t *testing.T) {
 	opts := DefaultOptions()
 	opts.PodID = "test-pod"
 	opts.RedisAddr = "localhost:6379"
+	opts.ReaderCanSetToRedis = true
 
 	c, err := New(opts)
 	if err != nil {
@@ -277,6 +320,7 @@ func TestSyncedCacheSetWithInvalidate(t *testing.T) {
 	opts := DefaultOptions()
 	opts.PodID = "test-pod-invalidate"
 	opts.RedisAddr = "localhost:6379"
+	opts.ReaderCanSetToRedis = true
 
 	c, err := New(opts)
 	if err != nil {
@@ -311,6 +355,7 @@ func TestSyncedCacheGetRemoteHit(t *testing.T) {
 	opts := DefaultOptions()
 	opts.PodID = "test-pod-remote"
 	opts.RedisAddr = "localhost:6379"
+	opts.ReaderCanSetToRedis = true
 
 	c, err := New(opts)
 	if err != nil {
@@ -354,6 +399,7 @@ func TestSyncedCacheGetMiss(t *testing.T) {
 	opts := DefaultOptions()
 	opts.PodID = "test-pod-miss"
 	opts.RedisAddr = "localhost:6379"
+	opts.ReaderCanSetToRedis = true
 
 	c, err := New(opts)
 	if err != nil {
@@ -382,6 +428,7 @@ func TestSyncedCacheWithDebugMode(t *testing.T) {
 	opts.PodID = "test-pod-debug"
 	opts.RedisAddr = "localhost:6379"
 	opts.DebugMode = true
+	opts.ReaderCanSetToRedis = true
 
 	c, err := New(opts)
 	if err != nil {
@@ -406,6 +453,7 @@ func TestSyncedCacheWithOnError(t *testing.T) {
 	opts := DefaultOptions()
 	opts.PodID = "test-pod-error"
 	opts.RedisAddr = "localhost:6379"
+	opts.ReaderCanSetToRedis = true
 
 	errorCalled := false
 	opts.OnError = func(err error) {
@@ -432,6 +480,7 @@ func TestSyncedCacheDeleteOnClosedCache(t *testing.T) {
 	opts := DefaultOptions()
 	opts.PodID = "test-pod-closed-delete"
 	opts.RedisAddr = "localhost:6379"
+	opts.ReaderCanSetToRedis = true
 
 	c, err := New(opts)
 	if err != nil {
@@ -453,6 +502,7 @@ func TestSyncedCacheClearOnClosedCache(t *testing.T) {
 	opts := DefaultOptions()
 	opts.PodID = "test-pod-closed-clear"
 	opts.RedisAddr = "localhost:6379"
+	opts.ReaderCanSetToRedis = true
 
 	c, err := New(opts)
 	if err != nil {
@@ -474,6 +524,7 @@ func TestSyncedCacheGetOnClosedCache(t *testing.T) {
 	opts := DefaultOptions()
 	opts.PodID = "test-pod-closed-get"
 	opts.RedisAddr = "localhost:6379"
+	opts.ReaderCanSetToRedis = true
 
 	c, err := New(opts)
 	if err != nil {
@@ -496,6 +547,7 @@ func TestHandleInvalidationActionSet(t *testing.T) {
 	opts := DefaultOptions()
 	opts.PodID = "test-pod-invalidation-set"
 	opts.RedisAddr = "localhost:6379"
+	opts.ReaderCanSetToRedis = true
 
 	c, err := New(opts)
 	if err != nil {
@@ -540,6 +592,7 @@ func TestHandleInvalidationActionSetWithInvalidData(t *testing.T) {
 	opts := DefaultOptions()
 	opts.PodID = "test-pod-invalidation-invalid"
 	opts.RedisAddr = "localhost:6379"
+	opts.ReaderCanSetToRedis = true
 
 	errorCalled := false
 	opts.OnError = func(err error) {
@@ -580,6 +633,7 @@ func TestHandleInvalidationActionInvalidate(t *testing.T) {
 	opts := DefaultOptions()
 	opts.PodID = "test-pod-invalidation-invalidate"
 	opts.RedisAddr = "localhost:6379"
+	opts.ReaderCanSetToRedis = true
 
 	c, err := New(opts)
 	if err != nil {
@@ -627,6 +681,7 @@ func TestHandleInvalidationActionDelete(t *testing.T) {
 	opts := DefaultOptions()
 	opts.PodID = "test-pod-invalidation-delete"
 	opts.RedisAddr = "localhost:6379"
+	opts.ReaderCanSetToRedis = true
 
 	c, err := New(opts)
 	if err != nil {
@@ -668,6 +723,7 @@ func TestHandleInvalidationActionClear(t *testing.T) {
 	opts := DefaultOptions()
 	opts.PodID = "test-pod-invalidation-clear"
 	opts.RedisAddr = "localhost:6379"
+	opts.ReaderCanSetToRedis = true
 
 	c, err := New(opts)
 	if err != nil {
@@ -713,6 +769,7 @@ func TestHandleInvalidationUnknownAction(t *testing.T) {
 	opts.RedisAddr = "localhost:6379"
 	opts.DebugMode = true
 	opts.Logger = NewConsoleLogger("test")
+	opts.ReaderCanSetToRedis = true
 
 	c, err := New(opts)
 	if err != nil {
@@ -738,6 +795,7 @@ func TestSyncedCacheGetDeserializationError(t *testing.T) {
 	opts := DefaultOptions()
 	opts.PodID = "test-pod-deserialize-error"
 	opts.RedisAddr = "localhost:6379"
+	opts.ReaderCanSetToRedis = true
 
 	errorCalled := false
 	opts.OnError = func(err error) {
@@ -782,6 +840,7 @@ func TestSyncedCacheSetSerializationError(t *testing.T) {
 	opts := DefaultOptions()
 	opts.PodID = "test-pod-serialize-error"
 	opts.RedisAddr = "localhost:6379"
+	opts.ReaderCanSetToRedis = true
 
 	errorCalled := false
 	opts.OnError = func(err error) {
@@ -817,6 +876,7 @@ func TestSyncedCacheSetRedisError(t *testing.T) {
 	opts := DefaultOptions()
 	opts.PodID = "test-pod-redis-error"
 	opts.RedisAddr = "localhost:6379"
+	opts.ReaderCanSetToRedis = true
 
 	errorCalled := false
 	opts.OnError = func(err error) {
@@ -852,6 +912,7 @@ func TestSyncedCacheSetPublishError(t *testing.T) {
 	opts := DefaultOptions()
 	opts.PodID = "test-pod-publish-error"
 	opts.RedisAddr = "localhost:6379"
+	opts.ReaderCanSetToRedis = true
 
 	errorCalled := false
 	opts.OnError = func(err error) {
@@ -887,6 +948,7 @@ func TestSyncedCacheDeleteRedisError(t *testing.T) {
 	opts := DefaultOptions()
 	opts.PodID = "test-pod-delete-redis-error"
 	opts.RedisAddr = "localhost:6379"
+	opts.ReaderCanSetToRedis = true
 
 	errorCalled := false
 	opts.OnError = func(err error) {
@@ -922,6 +984,7 @@ func TestSyncedCacheDeletePublishError(t *testing.T) {
 	opts := DefaultOptions()
 	opts.PodID = "test-pod-delete-publish-error"
 	opts.RedisAddr = "localhost:6379"
+	opts.ReaderCanSetToRedis = true
 
 	errorCalled := false
 	opts.OnError = func(err error) {
@@ -957,6 +1020,7 @@ func TestSyncedCacheClearRedisError(t *testing.T) {
 	opts := DefaultOptions()
 	opts.PodID = "test-pod-clear-redis-error"
 	opts.RedisAddr = "localhost:6379"
+	opts.ReaderCanSetToRedis = true
 
 	errorCalled := false
 	opts.OnError = func(err error) {
@@ -992,6 +1056,7 @@ func TestSyncedCacheClearPublishError(t *testing.T) {
 	opts := DefaultOptions()
 	opts.PodID = "test-pod-clear-publish-error"
 	opts.RedisAddr = "localhost:6379"
+	opts.ReaderCanSetToRedis = true
 
 	errorCalled := false
 	opts.OnError = func(err error) {
@@ -1027,6 +1092,7 @@ func TestSyncedCacheCloseWithErrors(t *testing.T) {
 	opts := DefaultOptions()
 	opts.PodID = "test-pod-close-errors"
 	opts.RedisAddr = "localhost:6379"
+	opts.ReaderCanSetToRedis = true
 
 	c, err := New(opts)
 	if err != nil {
@@ -1049,6 +1115,7 @@ func TestSyncedCacheDoubleClose(t *testing.T) {
 	opts := DefaultOptions()
 	opts.PodID = "test-pod-double-close"
 	opts.RedisAddr = "localhost:6379"
+	opts.ReaderCanSetToRedis = true
 
 	c, err := New(opts)
 	if err != nil {
@@ -1075,6 +1142,7 @@ func TestSyncedCacheClearWithDebugMode(t *testing.T) {
 	opts.RedisAddr = "localhost:6379"
 	opts.DebugMode = true
 	opts.Logger = NewConsoleLogger("test-clear")
+	opts.ReaderCanSetToRedis = true
 
 	c, err := New(opts)
 	if err != nil {
@@ -1105,6 +1173,7 @@ func TestHandleInvalidationWithDebugMode(t *testing.T) {
 	opts.RedisAddr = "localhost:6379"
 	opts.DebugMode = true
 	opts.Logger = NewConsoleLogger("test-handle")
+	opts.ReaderCanSetToRedis = true
 
 	c, err := New(opts)
 	if err != nil {
@@ -1147,6 +1216,7 @@ func TestHandleInvalidationActionSetWithEmptyValue(t *testing.T) {
 	opts := DefaultOptions()
 	opts.PodID = "test-pod-empty-value"
 	opts.RedisAddr = "localhost:6379"
+	opts.ReaderCanSetToRedis = true
 
 	c, err := New(opts)
 	if err != nil {
@@ -1179,6 +1249,7 @@ func TestSyncedCacheGetWithDebugModeRemoteMiss(t *testing.T) {
 	opts.RedisAddr = "localhost:6379"
 	opts.DebugMode = true
 	opts.Logger = NewConsoleLogger("test-get-miss")
+	opts.ReaderCanSetToRedis = true
 
 	c, err := New(opts)
 	if err != nil {
@@ -1203,6 +1274,7 @@ func TestSyncedCacheGetWithDebugModeLocalHit(t *testing.T) {
 	opts.RedisAddr = "localhost:6379"
 	opts.DebugMode = true
 	opts.Logger = NewConsoleLogger("test-get-hit")
+	opts.ReaderCanSetToRedis = true
 
 	c, err := New(opts)
 	if err != nil {
@@ -1233,6 +1305,7 @@ func TestSyncedCacheDeleteWithDebugMode(t *testing.T) {
 	opts.RedisAddr = "localhost:6379"
 	opts.DebugMode = true
 	opts.Logger = NewConsoleLogger("test-delete")
+	opts.ReaderCanSetToRedis = true
 
 	c, err := New(opts)
 	if err != nil {
@@ -1263,6 +1336,7 @@ func TestSyncedCacheSetWithInvalidateDebugMode(t *testing.T) {
 	opts.RedisAddr = "localhost:6379"
 	opts.DebugMode = true
 	opts.Logger = NewConsoleLogger("test-set-invalidate")
+	opts.ReaderCanSetToRedis = true
 
 	c, err := New(opts)
 	if err != nil {
@@ -1287,6 +1361,7 @@ func TestSyncedCacheGetWithConsoleLoggerRemoteHit(t *testing.T) {
 	opts.RedisAddr = "localhost:6379"
 	opts.DebugMode = true
 	opts.Logger = NewConsoleLogger("test-get-remote")
+	opts.ReaderCanSetToRedis = true
 
 	c, err := New(opts)
 	if err != nil {
@@ -1322,6 +1397,7 @@ func TestSyncedCacheGetWithConsoleLoggerLocalMiss(t *testing.T) {
 	opts.RedisAddr = "localhost:6379"
 	opts.DebugMode = true
 	opts.Logger = NewConsoleLogger("test-get-miss")
+	opts.ReaderCanSetToRedis = true
 
 	c, err := New(opts)
 	if err != nil {
@@ -1346,6 +1422,7 @@ func TestSyncedCacheSetWithConsoleLoggerSuccess(t *testing.T) {
 	opts.RedisAddr = "localhost:6379"
 	opts.DebugMode = true
 	opts.Logger = NewConsoleLogger("test-set")
+	opts.ReaderCanSetToRedis = true
 
 	c, err := New(opts)
 	if err != nil {
@@ -1370,6 +1447,7 @@ func TestSyncedCacheDeleteWithConsoleLoggerSuccess(t *testing.T) {
 	opts.RedisAddr = "localhost:6379"
 	opts.DebugMode = true
 	opts.Logger = NewConsoleLogger("test-delete")
+	opts.ReaderCanSetToRedis = true
 
 	c, err := New(opts)
 	if err != nil {
@@ -1400,6 +1478,7 @@ func TestSyncedCacheClearWithConsoleLoggerSuccess(t *testing.T) {
 	opts.RedisAddr = "localhost:6379"
 	opts.DebugMode = true
 	opts.Logger = NewConsoleLogger("test-clear")
+	opts.ReaderCanSetToRedis = true
 
 	c, err := New(opts)
 	if err != nil {
@@ -1431,6 +1510,7 @@ func TestSyncedCacheGetDeserializationErrorWithConsoleLogger(t *testing.T) {
 	opts.DebugMode = true
 	opts.Logger = NewConsoleLogger("test-get-deser")
 	opts.Marshaller = &errorMarshaller{}
+	opts.ReaderCanSetToRedis = true
 
 	c, err := New(opts)
 	if err != nil {
@@ -1464,6 +1544,7 @@ func TestSyncedCacheSetSerializationErrorWithConsoleLogger(t *testing.T) {
 	opts.DebugMode = true
 	opts.Logger = NewConsoleLogger("test-set-ser")
 	opts.Marshaller = &errorMarshaller{}
+	opts.ReaderCanSetToRedis = true
 
 	c, err := New(opts)
 	if err != nil {
@@ -1488,6 +1569,7 @@ func TestSyncedCacheSetRedisErrorWithConsoleLogger(t *testing.T) {
 	opts.RedisAddr = "localhost:6379"
 	opts.DebugMode = true
 	opts.Logger = NewConsoleLogger("test-set-redis")
+	opts.ReaderCanSetToRedis = true
 
 	c, err := New(opts)
 	if err != nil {
@@ -1514,6 +1596,7 @@ func TestSyncedCacheSetPublishErrorWithConsoleLogger(t *testing.T) {
 	opts.RedisAddr = "localhost:6379"
 	opts.DebugMode = true
 	opts.Logger = NewConsoleLogger("test-set-pub")
+	opts.ReaderCanSetToRedis = true
 
 	c, err := New(opts)
 	if err != nil {
@@ -1540,6 +1623,7 @@ func TestSyncedCacheDeleteRedisErrorWithConsoleLogger(t *testing.T) {
 	opts.RedisAddr = "localhost:6379"
 	opts.DebugMode = true
 	opts.Logger = NewConsoleLogger("test-delete-redis")
+	opts.ReaderCanSetToRedis = true
 
 	c, err := New(opts)
 	if err != nil {
@@ -1566,6 +1650,7 @@ func TestSyncedCacheDeletePublishErrorWithConsoleLogger(t *testing.T) {
 	opts.RedisAddr = "localhost:6379"
 	opts.DebugMode = true
 	opts.Logger = NewConsoleLogger("test-delete-pub")
+	opts.ReaderCanSetToRedis = true
 
 	c, err := New(opts)
 	if err != nil {
@@ -1592,6 +1677,7 @@ func TestSyncedCacheClearRedisErrorWithConsoleLogger(t *testing.T) {
 	opts.RedisAddr = "localhost:6379"
 	opts.DebugMode = true
 	opts.Logger = NewConsoleLogger("test-clear-redis")
+	opts.ReaderCanSetToRedis = true
 
 	c, err := New(opts)
 	if err != nil {
@@ -1618,6 +1704,7 @@ func TestSyncedCacheClearPublishErrorWithConsoleLogger(t *testing.T) {
 	opts.RedisAddr = "localhost:6379"
 	opts.DebugMode = true
 	opts.Logger = NewConsoleLogger("test-clear-pub")
+	opts.ReaderCanSetToRedis = true
 
 	c, err := New(opts)
 	if err != nil {

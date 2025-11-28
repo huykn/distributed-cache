@@ -55,7 +55,7 @@ func (lc *LRUCache) Get(key string) (any, bool) {
 }
 
 // Set stores a value in the local cache.
-func (lc *LRUCache) Set(key string, value any, cost int64) bool {
+func (lc *LRUCache) Set(key string, value any, _ int64) bool {
 	lc.cache.Add(key, value)
 	return true
 }
