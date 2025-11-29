@@ -45,7 +45,7 @@ func (cl *CustomConsoleLogger) Debug(msg string, args ...any) {
 
 ## Prerequisites
 
-- Go 1.24 or later
+- Go 1.25 or later
 - Redis server running on `localhost:6379`
 
 ## How to Run
@@ -178,7 +178,7 @@ func (zl *ZapLogger) Debug(msg string, args ...any) {
 }
 ```
 
-### 4. Slog Logger (Go 1.24+)
+### 4. Slog Logger (Go 1.25+)
 
 ```go
 import "log/slog"

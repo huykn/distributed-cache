@@ -1,0 +1,18 @@
+deployment:
+  role: data_plane
+  role_data_plane:
+    config_provider: yaml
+
+apisix:
+  node_listen: 9080
+  enable_admin: false
+  enable_control: false
+  
+plugin_attr:
+  prometheus:
+    enable_export_server: false
+    export_uri: /apisix/prometheus/metrics
+    metric_prefix: apisix_
+
+
+

@@ -435,30 +435,22 @@ func (sc *SyncedCache) handleInvalidation(event InvalidationEvent) {
 
 // recordLocalHit records a local cache hit.
 func (sc *SyncedCache) recordLocalHit() {
-	sc.statsMutex.Lock()
-	defer sc.statsMutex.Unlock()
-	sc.stats.LocalHits++
+	atomic.AddInt64(&sc.stats.LocalHits, 1)
 }
 
 // recordLocalMiss records a local cache miss.
 func (sc *SyncedCache) recordLocalMiss() {
-	sc.statsMutex.Lock()
-	defer sc.statsMutex.Unlock()
-	sc.stats.LocalMisses++
+	atomic.AddInt64(&sc.stats.LocalMisses, 1)
 }
 
 // recordRemoteHit records a remote cache hit.
 func (sc *SyncedCache) recordRemoteHit() {
-	sc.statsMutex.Lock()
-	defer sc.statsMutex.Unlock()
-	sc.stats.RemoteHits++
+	atomic.AddInt64(&sc.stats.RemoteHits, 1)
 }
 
 // recordRemoteMiss records a remote cache miss.
 func (sc *SyncedCache) recordRemoteMiss() {
-	sc.statsMutex.Lock()
-	defer sc.statsMutex.Unlock()
-	sc.stats.RemoteMisses++
+	atomic.AddInt64(&sc.stats.RemoteMisses, 1)
 }
 
 // ErrCacheClosed is returned when operations are performed on a closed cache.

@@ -56,7 +56,7 @@ cfg.Logger = cache.NewConsoleLogger("pod-1")
 
 ## Prerequisites
 
-- Go 1.24 or later
+- Go 1.25 or later
 - Redis server running on `localhost:6379`
 
 ## How to Run

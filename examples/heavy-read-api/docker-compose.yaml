@@ -1,0 +1,120 @@
+version: "3.8"
+
+services:
+  # Redis - Distributed cache backend
+  redis:
+    image: redis:7-alpine
+    restart: always
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # Redis Exporter - Exposes Redis metrics to Prometheus
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    environment:
+      - REDIS_ADDR=redis://redis:6379
+    ports:
+      - "9121:9121"
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  # Writer Service - Publishes posts to distributed cache
+  writer:
+    build:
+      context: ../../
+      dockerfile: examples/heavy-read-api/Dockerfile
+      args:
+        - BUILD_TARGET=writer
+    environment:
+      - REDIS_ADDR=redis:6379
+      - POD_ID=writer-1
+      - PORT=8080
+    ports:
+      - "8080:8080"
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Reader Services - Multiple instances for load balancing
+  reader:
+    build:
+      context: ../../
+      dockerfile: examples/heavy-read-api/Dockerfile
+      args:
+        - BUILD_TARGET=reader
+    environment:
+      - REDIS_ADDR=redis:6379
+      - PORT=80
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      replicas: 3
+
+  # Single reader instance exposed for direct testing
+  reader-direct:
+    build:
+      context: ../../
+      dockerfile: examples/heavy-read-api/Dockerfile
+      args:
+        - BUILD_TARGET=reader
+    environment:
+      - REDIS_ADDR=redis:6379
+      - POD_ID=reader-direct
+      - PORT=80
+    ports:
+      - "8081:80"
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # APISIX - API Gateway
+  apisix:
+    image: apache/apisix:3.7.0-debian
+    volumes:
+      - ./apisix_conf/config.yaml:/usr/local/apisix/conf/config.yaml:ro
+      - ./apisix_conf/apisix.yaml:/usr/local/apisix/conf/apisix.yaml:ro
+    ports:
+      - "9080:9080"
+      - "9091:9091"
+    depends_on:
+      - reader
+    restart: unless-stopped
+
+  # Prometheus - Metrics collection
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus_conf/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      - apisix
+    restart: unless-stopped
+
+  # Grafana - Metrics visualization
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_USER=admin
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    volumes:
+      - grafana-storage:/var/lib/grafana
+      - ./grafana_conf/datasources:/etc/grafana/provisioning/datasources:ro
+
+volumes:
+  grafana-storage:

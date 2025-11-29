@@ -61,7 +61,7 @@ go run main.go
 ## Prerequisites
 
 ### Required
-- Go 1.24 or later
+- Go 1.25 or later
 - Redis server (local or remote)
 
 ### Optional
@@ -346,7 +346,7 @@ Each example includes a detailed README with:
 
 ## Success Checklist
 
-- [ ] Go 1.24+ installed
+- [ ] Go 1.25+ installed
 - [ ] Redis running locally or accessible
 - [ ] Library installed: `go get github.com/huykn/distributed-cache`
 - [ ] Basic example runs successfully

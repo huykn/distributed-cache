@@ -1,0 +1,66 @@
+routes:
+  -
+    uri: /post
+    name: reader_route
+    upstream:
+      nodes:
+        reader:80: 1
+      type: roundrobin
+      timeout:
+        connect: 6
+        send: 6
+        read: 6
+    plugins:
+      request-id:
+        include_in_response: true
+      prometheus:
+        prefer_name: true
+  -
+    uri: /post-redis
+    name: reader_redis_route
+    upstream:
+      nodes:
+        reader:80: 1
+      type: roundrobin
+      timeout:
+        connect: 6
+        send: 6
+        read: 6
+    plugins:
+      request-id:
+        include_in_response: true
+      prometheus:
+        prefer_name: true
+  -
+    uri: /post-marshal
+    name: reader_marshal_route
+    upstream:
+      nodes:
+        reader:80: 1
+      type: roundrobin
+      timeout:
+        connect: 6
+        send: 6
+        read: 6
+    plugins:
+      request-id:
+        include_in_response: true
+      prometheus:
+        prefer_name: true
+  -
+    uri: /health
+    name: health_check
+    upstream:
+      nodes:
+        reader:80: 1
+      type: roundrobin
+    plugins:
+      prometheus:
+        prefer_name: true
+  -
+    uri: /apisix/prometheus/metrics
+    name: prometheus_metrics
+    plugins:
+      public-api:
+        uri: /apisix/prometheus/metrics
+#END

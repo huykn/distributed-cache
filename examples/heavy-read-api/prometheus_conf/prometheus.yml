@@ -1,0 +1,22 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+  scrape_timeout: 4s
+
+scrape_configs:
+  # APISIX Gateway Metrics
+  - job_name: 'apisix'
+    metrics_path: /apisix/prometheus/metrics
+    static_configs:
+      - targets: ['apisix:9080']
+        labels:
+          service: 'apisix-gateway'
+          environment: 'demo'
+
+  # Redis Exporter Metrics
+  - job_name: 'redis_exporter'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+        labels:
+          service: 'redis-cache'
+          environment: 'demo'
