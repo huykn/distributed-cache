@@ -11,7 +11,7 @@ updates:
       interval: "weekly"
       day: "sunday"
     commit-message:
-      prefix: "[chore] : "
+      prefix: "chore: "
     groups:
       actions:
         patterns:
@@ -23,7 +23,7 @@ updates:
       interval: "weekly"
       day: "sunday"
     commit-message:
-      prefix: "[chore] : "
+      prefix: "chore: "
     groups:
       go:
         patterns:
