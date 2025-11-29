@@ -51,4 +51,3 @@ func FromBytes(data []byte) (*Post, error) {
 	err := json.Unmarshal(data, &p)
 	return &p, err
 }
-

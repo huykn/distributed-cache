@@ -9,13 +9,13 @@
 [![codecov](https://codecov.io/github/huykn/distributed-cache/graph/badge.svg?token=NZBEQ9QGS7)](https://codecov.io/github/huykn/distributed-cache)
 
 
-A high-performance, distributed cache library for Go that synchronizes local LFU/LRU caches across multiple service instances using Redis as a backing store and pub/sub for set/invalidation events.
+A high-performance, distributed in-memory cache library for Go that synchronizes local LFU/LRU caches across multiple service instances using Redis as a backing store and pub/sub for set/invalidation events.
 
-**Version**: v1.0.0
+**Version**: v1.0.1
 
 ## Features
 
-- **Two-Level Caching**: Fast local in-process LFU(Ristretto)/LRU(golang-lru) with Redis backing store
+- **Two-Level Caching**: Fast local in-process LFU(Ristretto)/LRU(golang-lru) with Redis backing store (built-in) or custom your own implementation
 - **Automatic Synchronization**: Redis Pub/Sub for cache set/invalidation across distributed services
 - **High Performance**: LFU/LRU provides excellent hit ratios and throughput
 - **Kubernetes Ready**: Designed for containerized environments with pod-aware invalidation
@@ -25,85 +25,168 @@ A high-performance, distributed cache library for Go that synchronizes local LFU
 
 ## Architecture
 
-The distributed-cache library uses a two-level caching architecture with local in-process caches synchronized via Redis pub/sub:
+The distributed-cache library uses a two-level caching architecture with local in-process caches synchronized via Redis pub/sub.
+
+### 1. Set with Value Propagation
+
+When a pod sets a value, it's stored locally and in Redis, then propagated to all other pods so they can update their local caches immediately without fetching from Redis.
 
 ```mermaid
 sequenceDiagram
     participant AppA as Application (Pod A)
     participant CacheA as SyncedCache (Pod A)
     participant LocalA as Local Cache (Pod A)
-    participant Serializer as Marshaller
     participant Redis as Redis Store
     participant PubSub as Redis Pub/Sub
     participant CacheB as SyncedCache (Pod B)
     participant LocalB as Local Cache (Pod B)
-    participant AppB as Application (Pod B)
 
-    Note over AppA,AppB: 1. Cache Write Flow - Pod A writes & syncs to all pods
     AppA->>CacheA: Set(key, value)
-    CacheA->>Serializer: Marshal(value)
-    Serializer-->>CacheA: serialized data
-    CacheA->>LocalA: Set(key, data)
+    CacheA->>LocalA: Set(key, value)
+    CacheA->>CacheA: Marshal(value) → data
     CacheA->>Redis: SET key data
     Redis-->>CacheA: OK
-    CacheA->>PubSub: PUBLISH cache:sync {key, data}
+    CacheA->>PubSub: PUBLISH {action:set, key, data}
     CacheA-->>AppA: Success
+    PubSub->>CacheB: {action:set, key, data}
+    CacheB->>CacheB: Unmarshal(data) → value
+    CacheB->>LocalB: Set(key, value)
+    Note over LocalB: Ready to serve immediately
+```
 
-    Note over PubSub,LocalB: Other pods receive sync message with data
-    PubSub->>CacheB: Sync message {key, data}
-    CacheB->>LocalB: Set(key, data)
-    Note over LocalB: Local cache synced!<br/>Ready to serve
+### 2. Set with Invalidation Only
 
-    Note over AppA,AppB: 2. Cache Read from Pod B - Served from local cache
-    AppB->>CacheB: Get(key)
-    CacheB->>LocalB: Get(key)
-    LocalB-->>CacheB: cached data ✓
-    CacheB->>Serializer: Unmarshal(data)
-    Serializer-->>CacheB: value
-    CacheB-->>AppB: value (from local, no Redis/DB query!)
+For large values or lazy loading scenarios, use `SetWithInvalidate()` - other pods only receive an invalidation event and will fetch from Redis when needed.
 
-    Note over AppA,AppB: 3. Cache Miss Flow - Pod A fetches & syncs to all pods
-    AppA->>CacheA: Get(key)
-    CacheA->>LocalA: Get(key)
-    LocalA-->>CacheA: nil (miss)
-    CacheA->>Redis: GET key
-    alt Data exists in Redis
-        Redis-->>CacheA: data
-    else Data not in Redis (fetch from DB)
-        Redis-->>CacheA: nil
-        Note over CacheA: Fetch from DB (app logic)
-        CacheA->>Serializer: Marshal(value from DB)
-        Serializer-->>CacheA: serialized data
-        CacheA->>Redis: SET key data
-    end
-    CacheA->>LocalA: Set(key, data)
-    CacheA->>PubSub: PUBLISH cache:sync {key, data}
-    Note over PubSub: Broadcast data to all pods
-    PubSub->>CacheB: Sync message {key, data}
-    CacheB->>LocalB: Set(key, data)
-    Note over LocalB: Pod B now has the data!
-    CacheA->>Serializer: Unmarshal(data)
-    Serializer-->>CacheA: value
-    CacheA-->>AppA: value
+```mermaid
+sequenceDiagram
+    participant AppA as Application (Pod A)
+    participant CacheA as SyncedCache (Pod A)
+    participant LocalA as Local Cache (Pod A)
+    participant Redis as Redis Store
+    participant PubSub as Redis Pub/Sub
+    participant CacheB as SyncedCache (Pod B)
+    participant LocalB as Local Cache (Pod B)
 
-    Note over AppA,AppB: 4. Next request to Pod B - Instant response
-    AppB->>CacheB: Get(key)
-    CacheB->>LocalB: Get(key)
-    LocalB-->>CacheB: cached data ✓
-    CacheB->>Serializer: Unmarshal(data)
-    Serializer-->>CacheB: value
-    CacheB-->>AppB: value (instant, from local!)
+    AppA->>CacheA: SetWithInvalidate(key, value)
+    CacheA->>LocalA: Set(key, value)
+    CacheA->>CacheA: Marshal(value) → data
+    CacheA->>Redis: SET key data
+    Redis-->>CacheA: OK
+    CacheA->>PubSub: PUBLISH {action:invalidate, key}
+    CacheA-->>AppA: Success
+    PubSub->>CacheB: {action:invalidate, key}
+    CacheB->>LocalB: Delete(key)
+    Note over LocalB: Will fetch from Redis on next Get
+```
 
-    Note over AppA,AppB: 5. Cache Delete Flow - Invalidate all pods
+### 3. Get - Local Cache Hit
+
+The fastest path: value is found in the local in-process cache (~100ns).
+
+```mermaid
+sequenceDiagram
+    participant App as Application
+    participant Cache as SyncedCache
+    participant Local as Local Cache
+
+    App->>Cache: Get(key)
+    Cache->>Local: Get(key)
+    Local-->>Cache: value ✓
+    Cache-->>App: value, true
+    Note over App: ~100ns response time
+```
+
+### 4. Get - Remote Cache Hit
+
+Value not in local cache but found in Redis. Fetched and stored locally for future requests.
+
+```mermaid
+sequenceDiagram
+    participant App as Application
+    participant Cache as SyncedCache
+    participant Local as Local Cache
+    participant Redis as Redis Store
+
+    App->>Cache: Get(key)
+    Cache->>Local: Get(key)
+    Local-->>Cache: nil (miss)
+    Cache->>Redis: GET key
+    Redis-->>Cache: data ✓
+    Cache->>Cache: Unmarshal(data) → value
+    Cache->>Local: Set(key, value)
+    Cache-->>App: value, true
+    Note over App: ~1-5ms response time
+```
+
+### 5. Get - Cache Miss
+
+Value not found in either local cache or Redis.
+
+```mermaid
+sequenceDiagram
+    participant App as Application
+    participant Cache as SyncedCache
+    participant Local as Local Cache
+    participant Redis as Redis Store
+
+    App->>Cache: Get(key)
+    Cache->>Local: Get(key)
+    Local-->>Cache: nil (miss)
+    Cache->>Redis: GET key
+    Redis-->>Cache: nil (miss)
+    Cache-->>App: nil, false
+    Note over App: Application handles cache miss<br/>(e.g., fetch from DB and Set)
+```
+
+### 6. Delete Operation
+
+Removes value from local cache and Redis, then broadcasts deletion to all pods.
+
+```mermaid
+sequenceDiagram
+    participant AppA as Application (Pod A)
+    participant CacheA as SyncedCache (Pod A)
+    participant LocalA as Local Cache (Pod A)
+    participant Redis as Redis Store
+    participant PubSub as Redis Pub/Sub
+    participant CacheB as SyncedCache (Pod B)
+    participant LocalB as Local Cache (Pod B)
+
     AppA->>CacheA: Delete(key)
     CacheA->>LocalA: Delete(key)
     CacheA->>Redis: DEL key
     Redis-->>CacheA: OK
-    CacheA->>PubSub: PUBLISH cache:invalidate key
+    CacheA->>PubSub: PUBLISH {action:delete, key}
     CacheA-->>AppA: Success
-    PubSub->>CacheB: Invalidation message (key)
+    PubSub->>CacheB: {action:delete, key}
     CacheB->>LocalB: Delete(key)
     Note over LocalB: Cache invalidated
+```
+
+### 7. Clear Operation
+
+Clears all values from local cache and Redis, then broadcasts clear event to all pods.
+
+```mermaid
+sequenceDiagram
+    participant AppA as Application (Pod A)
+    participant CacheA as SyncedCache (Pod A)
+    participant LocalA as Local Cache (Pod A)
+    participant Redis as Redis Store
+    participant PubSub as Redis Pub/Sub
+    participant CacheB as SyncedCache (Pod B)
+    participant LocalB as Local Cache (Pod B)
+
+    AppA->>CacheA: Clear()
+    CacheA->>LocalA: Clear()
+    CacheA->>Redis: FLUSHDB
+    Redis-->>CacheA: OK
+    CacheA->>PubSub: PUBLISH {action:clear}
+    CacheA-->>AppA: Success
+    PubSub->>CacheB: {action:clear}
+    CacheB->>LocalB: Clear()
+    Note over LocalB: All caches cleared
 ```
 
 ### Key Components
@@ -117,10 +200,10 @@ sequenceDiagram
 
 ### Data Flow
 
-1. **Set Operation**: Value stored in local cache → Redis → Pub/sub event sent to other pods
+1. **Set Operation**: Value stored in local cache → Redis → Pub/sub event sent to other service instances (pods)
 2. **Get Operation (Local Hit)**: Value retrieved from local cache (~100ns)
 3. **Get Operation (Remote Hit)**: Value fetched from Redis → Stored in local cache (~1-5ms)
-4. **Synchronization**: Other pods receive pub/sub event → Update/invalidate local cache
+4. **Synchronization**: Other service instances (pods) receive pub/sub event → Update/invalidate local cache
 
 ## Installation
 
@@ -249,10 +332,11 @@ The library includes comprehensive examples demonstrating various features and u
 - **[Custom Marshaller](examples/custom-marshaller/)** - Use MessagePack, Protobuf, compression, or encryption
 - **[Custom Local Cache](examples/custom-local-cache/)** - Implement custom eviction strategies and storage
 - **[Custom Configuration](examples/custom-config/)** - Advanced tuning for production environments
+- **[Kubernetes](examples/kubernetes/)** - Multi-pod scenario deployment
 
 ### Production Deployment
 
-- **[Kubernetes](examples/kubernetes/)** - Multi-pod deployment with HTTP API, health checks, and environment configuration
+- **[Heavy-Read API](examples/heavy-read-api/)** - High-performance demo with 1M+ req/s, APISIX gateway, Prometheus/Grafana monitoring
 
 Each example includes:
 - Detailed README with explanation
@@ -262,15 +346,6 @@ Each example includes:
 - Troubleshooting tips
 
 **Quick Start**: Begin with the [Basic Example](examples/basic/) to understand core concepts, then explore other examples based on your needs.
-
-## Kubernetes Deployment
-
-See the [Kubernetes example](examples/kubernetes/) for a complete production deployment with:
-- Multiple pod replicas with synchronized caches
-- Environment-based configuration using ConfigMaps
-- Health checks and readiness probes
-- HTTP API endpoints for cache operations
-- Value propagation across all pods
 
 ## Contributing
 

@@ -9,9 +9,10 @@ import (
 	"os"
 	"time"
 
+	"github.com/huykn/heavy-read-api/shared"
+
 	dc "github.com/huykn/distributed-cache"
 	"github.com/huykn/distributed-cache/cache"
-	"github.com/huykn/heavy-read-api/shared"
 )
 
 var (
