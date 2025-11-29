@@ -9,10 +9,11 @@ import (
 	"os"
 	"time"
 
-	dc "github.com/huykn/distributed-cache"
-	"github.com/huykn/distributed-cache/cache"
 	"github.com/huykn/heavy-read-api/shared"
 	"github.com/redis/go-redis/v9"
+
+	dc "github.com/huykn/distributed-cache"
+	"github.com/huykn/distributed-cache/cache"
 )
 
 // CachedPost is a pre-processed wrapper struct stored in local cache.
