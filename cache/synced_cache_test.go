@@ -2,6 +2,7 @@ package cache
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -542,12 +543,13 @@ func TestSyncedCacheGetOnClosedCache(t *testing.T) {
 	}
 }
 
-// TestHandleInvalidationActionSet tests handleInvalidation with ActionSet
+// TestHandleInvalidationActionSet tests handleInvalidation with ActionSet (default behavior with unmarshaling)
 func TestHandleInvalidationActionSet(t *testing.T) {
 	opts := DefaultOptions()
 	opts.PodID = "test-pod-invalidation-set"
 	opts.RedisAddr = "localhost:6379"
 	opts.ReaderCanSetToRedis = true
+	// OnSetLocalCache is nil (default): unmarshal before storing
 
 	c, err := New(opts)
 	if err != nil {
@@ -587,12 +589,78 @@ func TestHandleInvalidationActionSet(t *testing.T) {
 	}
 }
 
-// TestHandleInvalidationActionSetWithInvalidData tests handleInvalidation with invalid serialized data
+// TestHandleInvalidationActionSetWithCallback tests handleInvalidation with custom OnSetLocalCache callback
+func TestHandleInvalidationActionSetWithCallback(t *testing.T) {
+	opts := DefaultOptions()
+	opts.PodID = "test-pod-invalidation-set-callback"
+	opts.RedisAddr = "localhost:6379"
+	opts.ReaderCanSetToRedis = true
+
+	// Custom callback that returns raw bytes directly
+	callbackCalled := false
+	opts.OnSetLocalCache = func(event InvalidationEvent) any {
+		callbackCalled = true
+		// Return raw bytes directly without unmarshaling
+		return event.Value
+	}
+
+	c, err := New(opts)
+	if err != nil {
+		t.Fatalf("Failed to create cache: %v", err)
+	}
+	defer c.Close()
+
+	// Create a valid serialized value
+	testValue := "test-value"
+	data, err := c.serializer.Marshal(testValue)
+	if err != nil {
+		t.Fatalf("Failed to marshal test value: %v", err)
+	}
+
+	// Create an invalidation event with ActionSet
+	event := InvalidationEvent{
+		Key:    "test:key",
+		Sender: "other-pod",
+		Action: ActionSet,
+		Value:  data,
+	}
+
+	// Call handleInvalidation directly
+	c.handleInvalidation(event)
+
+	// Wait for async processing (LFU cache)
+	time.Sleep(10 * time.Millisecond)
+
+	// Verify callback was called
+	if !callbackCalled {
+		t.Fatal("OnSetLocalCache callback should have been called")
+	}
+
+	// Verify the raw bytes were set in local cache
+	value, found := c.local.Get("test:key")
+	if !found {
+		t.Fatal("Value should be found in local cache after handleInvalidation")
+	}
+
+	// The callback returned raw bytes, so the value should be []byte
+	rawBytes, ok := value.([]byte)
+	if !ok {
+		t.Fatalf("Expected []byte, got %T", value)
+	}
+
+	// Verify the raw bytes match the original marshaled data
+	if string(rawBytes) != string(data) {
+		t.Fatalf("Expected %s, got %s", string(data), string(rawBytes))
+	}
+}
+
+// TestHandleInvalidationActionSetWithInvalidData tests handleInvalidation with invalid serialized data (default behavior)
 func TestHandleInvalidationActionSetWithInvalidData(t *testing.T) {
 	opts := DefaultOptions()
 	opts.PodID = "test-pod-invalidation-invalid"
 	opts.RedisAddr = "localhost:6379"
 	opts.ReaderCanSetToRedis = true
+	// OnSetLocalCache is nil (default): unmarshal before storing
 
 	errorCalled := false
 	opts.OnError = func(err error) {
@@ -625,6 +693,140 @@ func TestHandleInvalidationActionSetWithInvalidData(t *testing.T) {
 	_, found := c.local.Get("test:key")
 	if found {
 		t.Fatal("Value should not be found in local cache after failed deserialization")
+	}
+}
+
+// TestHandleInvalidationActionSetCallbackWithInvalidData tests handleInvalidation with callback that handles invalid data
+func TestHandleInvalidationActionSetCallbackWithInvalidData(t *testing.T) {
+	opts := DefaultOptions()
+	opts.PodID = "test-pod-invalidation-callback-invalid"
+	opts.RedisAddr = "localhost:6379"
+	opts.ReaderCanSetToRedis = true
+
+	// Custom callback that returns raw bytes directly (doesn't care about JSON validity)
+	opts.OnSetLocalCache = func(event InvalidationEvent) any {
+		// Return raw bytes directly without unmarshaling
+		return event.Value
+	}
+
+	c, err := New(opts)
+	if err != nil {
+		t.Fatalf("Failed to create cache: %v", err)
+	}
+	defer c.Close()
+
+	// Create an invalidation event with "invalid" data (callback doesn't care)
+	invalidData := []byte("invalid json data {{{")
+	event := InvalidationEvent{
+		Key:    "test:key",
+		Sender: "other-pod",
+		Action: ActionSet,
+		Value:  invalidData,
+	}
+
+	// Call handleInvalidation directly
+	c.handleInvalidation(event)
+
+	// Wait for async processing (LFU cache)
+	time.Sleep(10 * time.Millisecond)
+
+	// With callback, the value should be stored regardless of format
+	value, found := c.local.Get("test:key")
+	if !found {
+		t.Fatal("Value should be found in local cache (callback stores any data)")
+	}
+
+	// Verify the raw bytes match the original data
+	rawBytes, ok := value.([]byte)
+	if !ok {
+		t.Fatalf("Expected []byte, got %T", value)
+	}
+	if string(rawBytes) != string(invalidData) {
+		t.Fatalf("Expected %s, got %s", string(invalidData), string(rawBytes))
+	}
+}
+
+// TestHandleInvalidationActionSetCallbackWithStructuredMetadata tests callback with structured metadata
+func TestHandleInvalidationActionSetCallbackWithStructuredMetadata(t *testing.T) {
+	opts := DefaultOptions()
+	opts.PodID = "test-pod-invalidation-callback-metadata"
+	opts.RedisAddr = "localhost:6379"
+	opts.ReaderCanSetToRedis = true
+
+	// Define a structured metadata type for the test
+	type CachedItem struct {
+		Hash      string `json:"hash"`
+		Timestamp int64  `json:"timestamp"`
+		Data      []byte `json:"data"`
+	}
+
+	// Custom callback that extracts structured metadata and returns it
+	var extractedItem *CachedItem
+	opts.OnSetLocalCache = func(event InvalidationEvent) any {
+		// Unmarshal to extract structured metadata
+		var item CachedItem
+		if err := json.Unmarshal(event.Value, &item); err != nil {
+			return nil
+		}
+		extractedItem = &item
+		// Return the item to be stored in local cache
+		return item
+	}
+
+	c, err := New(opts)
+	if err != nil {
+		t.Fatalf("Failed to create cache: %v", err)
+	}
+	defer c.Close()
+
+	// Create a structured item with metadata
+	originalItem := CachedItem{
+		Hash:      "abc123",
+		Timestamp: 1234567890,
+		Data:      []byte(`{"name":"test"}`),
+	}
+	data, err := json.Marshal(originalItem)
+	if err != nil {
+		t.Fatalf("Failed to marshal item: %v", err)
+	}
+
+	// Create an invalidation event with structured data
+	event := InvalidationEvent{
+		Key:    "test:item",
+		Sender: "other-pod",
+		Action: ActionSet,
+		Value:  data,
+	}
+
+	// Call handleInvalidation directly
+	c.handleInvalidation(event)
+
+	// Wait for async processing (LFU cache)
+	time.Sleep(10 * time.Millisecond)
+
+	// Verify the callback extracted the metadata correctly
+	if extractedItem == nil {
+		t.Fatal("Callback should have extracted the item")
+	}
+	if extractedItem.Hash != "abc123" {
+		t.Fatalf("Expected hash 'abc123', got '%s'", extractedItem.Hash)
+	}
+	if extractedItem.Timestamp != 1234567890 {
+		t.Fatalf("Expected timestamp 1234567890, got %d", extractedItem.Timestamp)
+	}
+
+	// Verify the item was stored in local cache
+	value, found := c.local.Get("test:item")
+	if !found {
+		t.Fatal("Value should be found in local cache")
+	}
+
+	storedItem, ok := value.(CachedItem)
+	if !ok {
+		t.Fatalf("Expected CachedItem, got %T", value)
+	}
+	if storedItem.Hash != originalItem.Hash {
+		t.Fatalf("Expected hash '%s', got '%s'", originalItem.Hash, storedItem.Hash)
 	}
 }
 

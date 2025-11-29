@@ -226,7 +226,7 @@ func TestJSONMarshallerMarshalInt(t *testing.T) {
 func TestJSONMarshallerMarshalMap(t *testing.T) {
 	marshaller := NewJSONMarshaller()
 
-	testMap := map[string]interface{}{
+	testMap := map[string]any{
 		"key1": "value1",
 		"key2": 42,
 	}
@@ -237,7 +237,7 @@ func TestJSONMarshallerMarshalMap(t *testing.T) {
 	}
 
 	// Unmarshal to verify
-	var result map[string]interface{}
+	var result map[string]any
 	err = marshaller.Unmarshal(data, &result)
 	if err != nil {
 		t.Fatalf("Unmarshal failed: %v", err)
@@ -255,7 +255,7 @@ func TestJSONMarshallerMarshalMap(t *testing.T) {
 func TestJSONMarshallerUnmarshalInvalidJSON(t *testing.T) {
 	marshaller := NewJSONMarshaller()
 
-	var result map[string]interface{}
+	var result map[string]any
 	err := marshaller.Unmarshal([]byte("invalid json"), &result)
 	if err == nil {
 		t.Fatal("Expected error for invalid JSON")

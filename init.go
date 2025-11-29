@@ -53,6 +53,15 @@ type Config struct {
 
 	// OnError is called when an error occurs in background operations.
 	OnError func(error)
+
+	// ReaderCanSetToRedis controls whether reader nodes are allowed to write data to Redis.
+	// When false (default), reader nodes will only update local cache but NOT write to Redis.
+	ReaderCanSetToRedis bool
+
+	// OnSetLocalCache is a callback for custom processing of data before storing in local cache.
+	// This callback is invoked when an invalidation event with action "set" is received.
+	// When nil (default), the default behavior is used: unmarshal the value and store in local cache.
+	OnSetLocalCache func(event InvalidationEvent) any
 }
 
 // New creates a new distributed cache instance.
@@ -74,6 +83,8 @@ func New(cfg Config) (Cache, error) {
 		ContextTimeout:      cfg.ContextTimeout,
 		EnableMetrics:       cfg.EnableMetrics,
 		OnError:             cfg.OnError,
+		ReaderCanSetToRedis: cfg.ReaderCanSetToRedis,
+		OnSetLocalCache:     cfg.OnSetLocalCache,
 	}
 
 	return cache.New(opts)

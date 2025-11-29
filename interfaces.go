@@ -20,6 +20,9 @@ type LocalCacheFactory = cache.LocalCacheFactory
 // LocalCacheConfig is an alias for cache.LocalCacheConfig.
 type LocalCacheConfig = cache.LocalCacheConfig
 
+// InvalidationEvent is an alias for cache.InvalidationEvent.
+type InvalidationEvent = cache.InvalidationEvent
+
 // DefaultLocalCacheConfig returns default local cache configuration for Ristretto.
 func DefaultLocalCacheConfig() LocalCacheConfig {
 	return cache.DefaultLocalCacheConfig()

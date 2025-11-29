@@ -75,9 +75,20 @@ type Options struct {
 
 	// ReaderCanSetToRedis controls whether reader nodes are allowed to write data to Redis.
 	// When false (default), reader nodes will only update local cache but NOT write to Redis.
-	// When true, reader nodes can write data to Redis (legacy behavior).
+	// When true, reader nodes can write data to Redis.
 	// This prevents stale data from readers overwriting fresh data in Redis.
 	ReaderCanSetToRedis bool
+
+	// OnSetLocalCache is a callback for custom processing of data before storing in local cache.
+	// This callback is invoked when an invalidation event with action "set" is received.
+	// The callback receives the invalidation event and returns the value to store in local cache.
+	// When nil (default), the default behavior is used: unmarshal the value and store in local cache.
+	//
+	// Use cases:
+	// - Return raw bytes directly without unmarshaling for reader nodes that serve cached bytes
+	// - Parse and transform event data into a pre-processed wrapper struct for zero-cost reads
+	// - Extract structured metadata (hash, timestamp, data) from events for custom handling
+	OnSetLocalCache func(event InvalidationEvent) any
 }
 
 // DefaultOptions returns default cache options.
@@ -96,6 +107,7 @@ func DefaultOptions() Options {
 		Logger:              nil, // Will default to no-op in New()
 		DebugMode:           false,
 		ReaderCanSetToRedis: false, // Default: readers cannot write to Redis
+		OnSetLocalCache:     nil,   // Default: unmarshal and store in local cache
 	}
 }
 

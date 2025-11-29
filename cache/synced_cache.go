@@ -382,18 +382,31 @@ func (sc *SyncedCache) handleInvalidation(event InvalidationEvent) {
 		// Propagate the value to local cache
 		if len(event.Value) > 0 {
 			var value any
-			if err := sc.serializer.Unmarshal(event.Value, &value); err != nil {
-				if sc.options.OnError != nil {
-					sc.options.OnError(err)
+			if sc.options.OnSetLocalCache != nil {
+				// Use custom callback to process and transform the event data
+				value = sc.options.OnSetLocalCache(event)
+				if sc.options.DebugMode {
+					sc.logger.Debug("Sync: processed event via OnSetLocalCache callback", "key", event.Key, "sender", event.Sender)
+				}
+			} else {
+				// Default behavior: unmarshal before storing
+				if err := sc.serializer.Unmarshal(event.Value, &value); err != nil {
+					if sc.options.OnError != nil {
+						sc.options.OnError(err)
+					}
+					if sc.options.DebugMode {
+						sc.logger.Error("Sync: failed to deserialize value", "key", event.Key, "error", err)
+					}
+					return
 				}
 				if sc.options.DebugMode {
-					sc.logger.Error("Sync: failed to deserialize value", "key", event.Key, "error", err)
+					sc.logger.Debug("Sync: unmarshaled value for local cache", "key", event.Key, "sender", event.Sender)
 				}
-				return
 			}
+			// Store the processed/unmarshaled value in local cache
 			sc.local.Set(event.Key, value, 1)
 			if sc.options.DebugMode {
-				sc.logger.Debug("Sync: updated local cache with propagated value", "key", event.Key, "sender", event.Sender)
+				sc.logger.Debug("Sync: updated local cache", "key", event.Key, "sender", event.Sender)
 			}
 		}
 
