@@ -40,7 +40,8 @@ jobs:
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
 
-    - name: run golangci-lint
-      uses: golangci/golangci-lint-action@v5
-      with:
-        version: v1.64.2
+    - name: Install golangci-lint
+      run: curl -sfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $GITHUB_WORKSPACE v1.64.2
+
+    - name: Run golangci-lint
+      run: golangci-lint run ./...
