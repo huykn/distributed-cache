@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 )
@@ -1923,5 +1924,273 @@ func TestSyncedCacheClearPublishErrorWithConsoleLogger(t *testing.T) {
 	err = c.Clear(ctx)
 	if err != nil {
 		t.Fatalf("Clear should succeed despite publish error: %v", err)
+	}
+}
+
+// countingStore wraps a Store and counts the number of Get calls per key.
+type countingStore struct {
+	Store
+	getCounts map[string]int64
+	getDelay  time.Duration
+	mu        sync.Mutex
+}
+
+func newCountingStore(inner Store, getDelay time.Duration) *countingStore {
+	return &countingStore{
+		Store:     inner,
+		getCounts: make(map[string]int64),
+		getDelay:  getDelay,
+	}
+}
+
+func (cs *countingStore) Get(ctx context.Context, key string) ([]byte, error) {
+	cs.mu.Lock()
+	cs.getCounts[key]++
+	cs.mu.Unlock()
+
+	// Simulate slow Redis call
+	if cs.getDelay > 0 {
+		time.Sleep(cs.getDelay)
+	}
+
+	return cs.Store.Get(ctx, key)
+}
+
+func (cs *countingStore) getCount(key string) int64 {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	return cs.getCounts[key]
+}
+
+// TestSyncedCacheSingleflightDeduplicatesConcurrentGets verifies that concurrent Get calls
+// for the same key result in only one Redis query (singleflight pattern).
+func TestSyncedCacheSingleflightDeduplicatesConcurrentGets(t *testing.T) {
+	opts := DefaultOptions()
+	opts.PodID = "test-pod-singleflight"
+	opts.RedisAddr = "localhost:6379"
+	opts.ReaderCanSetToRedis = true
+
+	c, err := New(opts)
+	if err != nil {
+		t.Fatalf("Failed to create cache: %v", err)
+	}
+	defer c.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Set a value in Redis first
+	testKey := "test:singleflight"
+	testValue := "test-value-singleflight"
+	if err := c.Set(ctx, testKey, testValue); err != nil {
+		t.Fatalf("Failed to set value: %v", err)
+	}
+
+	// Clear local cache to ensure we hit Redis
+	c.local.Clear()
+
+	// Replace the store with a counting store that adds a delay
+	countingStore := newCountingStore(c.store, 100*time.Millisecond)
+	c.store = countingStore
+
+	// Launch multiple concurrent Get requests for the same key
+	const numGoroutines = 10
+	var wg sync.WaitGroup
+	results := make([]any, numGoroutines)
+	founds := make([]bool, numGoroutines)
+
+	for i := range numGoroutines {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			results[idx], founds[idx] = c.Get(ctx, testKey)
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Verify all goroutines got the same result
+	for i := range numGoroutines {
+		if !founds[i] {
+			t.Fatalf("Goroutine %d: expected to find value", i)
+		}
+		if results[i] != testValue {
+			t.Fatalf("Goroutine %d: expected %v, got %v", i, testValue, results[i])
+		}
+	}
+
+	// Verify only one Redis Get was made (singleflight deduplication)
+	redisGetCount := countingStore.getCount(testKey)
+	if redisGetCount != 1 {
+		t.Fatalf("Expected exactly 1 Redis Get call, but got %d (singleflight not working)", redisGetCount)
+	}
+}
+
+// TestSyncedCacheSingleflightSharesResultOnRemoteMiss verifies that when Redis returns
+// not found, all concurrent Get callers receive the same not-found result.
+func TestSyncedCacheSingleflightSharesResultOnRemoteMiss(t *testing.T) {
+	opts := DefaultOptions()
+	opts.PodID = "test-pod-singleflight-miss"
+	opts.RedisAddr = "localhost:6379"
+	opts.ReaderCanSetToRedis = true
+
+	c, err := New(opts)
+	if err != nil {
+		t.Fatalf("Failed to create cache: %v", err)
+	}
+	defer c.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Use a key that doesn't exist in Redis
+	testKey := "test:singleflight:nonexistent:" + time.Now().String()
+
+	// Replace the store with a counting store that adds a delay
+	countingStore := newCountingStore(c.store, 100*time.Millisecond)
+	c.store = countingStore
+
+	// Launch multiple concurrent Get requests for the same key
+	const numGoroutines = 10
+	var wg sync.WaitGroup
+	founds := make([]bool, numGoroutines)
+
+	for i := range numGoroutines {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			_, founds[idx] = c.Get(ctx, testKey)
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Verify all goroutines got not found
+	for i := range numGoroutines {
+		if founds[i] {
+			t.Fatalf("Goroutine %d: expected not found", i)
+		}
+	}
+
+	// Verify only one Redis Get was made (singleflight deduplication)
+	redisGetCount := countingStore.getCount(testKey)
+	if redisGetCount != 1 {
+		t.Fatalf("Expected exactly 1 Redis Get call, but got %d (singleflight not working)", redisGetCount)
+	}
+}
+
+// TestSyncedCacheSingleflightLocalCacheDoubleCheck verifies that the double-check
+// of local cache inside singleflight works correctly.
+func TestSyncedCacheSingleflightLocalCacheDoubleCheck(t *testing.T) {
+	opts := DefaultOptions()
+	opts.PodID = "test-pod-singleflight-doublecheck"
+	opts.RedisAddr = "localhost:6379"
+	opts.ReaderCanSetToRedis = true
+
+	c, err := New(opts)
+	if err != nil {
+		t.Fatalf("Failed to create cache: %v", err)
+	}
+	defer c.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Set a value in Redis first
+	testKey := "test:singleflight:doublecheck"
+	testValue := "test-value-doublecheck"
+	if err := c.Set(ctx, testKey, testValue); err != nil {
+		t.Fatalf("Failed to set value: %v", err)
+	}
+
+	// Get it once to populate local cache
+	_, found := c.Get(ctx, testKey)
+	if !found {
+		t.Fatal("Expected to find value after Set")
+	}
+
+	// Replace the store with a counting store
+	countingStore := newCountingStore(c.store, 0)
+	c.store = countingStore
+
+	// Get it again - should hit local cache
+	value, found := c.Get(ctx, testKey)
+	if !found {
+		t.Fatal("Expected to find value in local cache")
+	}
+	if value != testValue {
+		t.Fatalf("Expected %v, got %v", testValue, value)
+	}
+
+	// Verify no Redis Get was made (local cache hit)
+	redisGetCount := countingStore.getCount(testKey)
+	if redisGetCount != 0 {
+		t.Fatalf("Expected 0 Redis Get calls (local cache hit), but got %d", redisGetCount)
+	}
+}
+
+// TestSyncedCacheSingleflightDifferentKeysNotDeduplicated verifies that requests
+// for different keys are not incorrectly deduplicated.
+func TestSyncedCacheSingleflightDifferentKeysNotDeduplicated(t *testing.T) {
+	opts := DefaultOptions()
+	opts.PodID = "test-pod-singleflight-diffkeys"
+	opts.RedisAddr = "localhost:6379"
+	opts.ReaderCanSetToRedis = true
+
+	c, err := New(opts)
+	if err != nil {
+		t.Fatalf("Failed to create cache: %v", err)
+	}
+	defer c.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Set two different values
+	if err := c.Set(ctx, "key1", "value1"); err != nil {
+		t.Fatalf("Failed to set key1: %v", err)
+	}
+	if err := c.Set(ctx, "key2", "value2"); err != nil {
+		t.Fatalf("Failed to set key2: %v", err)
+	}
+
+	// Clear local cache
+	c.local.Clear()
+
+	// Replace the store with a counting store that adds a delay
+	countingStore := newCountingStore(c.store, 50*time.Millisecond)
+	c.store = countingStore
+
+	// Launch concurrent Get requests for different keys
+	var wg sync.WaitGroup
+	var value1, value2 any
+	var found1, found2 bool
+
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		value1, found1 = c.Get(ctx, "key1")
+	}()
+	go func() {
+		defer wg.Done()
+		value2, found2 = c.Get(ctx, "key2")
+	}()
+
+	wg.Wait()
+
+	// Verify both values were found correctly
+	if !found1 || value1 != "value1" {
+		t.Fatalf("key1: expected value1, got %v (found=%v)", value1, found1)
+	}
+	if !found2 || value2 != "value2" {
+		t.Fatalf("key2: expected value2, got %v (found=%v)", value2, found2)
+	}
+
+	// Verify both keys had separate Redis Gets
+	if countingStore.getCount("key1") != 1 {
+		t.Fatalf("Expected exactly 1 Redis Get for key1, got %d", countingStore.getCount("key1"))
+	}
+	if countingStore.getCount("key2") != 1 {
+		t.Fatalf("Expected exactly 1 Redis Get for key2, got %d", countingStore.getCount("key2"))
 	}
 }

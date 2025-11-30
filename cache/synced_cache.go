@@ -5,6 +5,8 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"golang.org/x/sync/singleflight"
+
 	"github.com/huykn/distributed-cache/storage"
 	cachesync "github.com/huykn/distributed-cache/sync"
 )
@@ -20,6 +22,7 @@ type SyncedCache struct {
 	closed       int32
 	stats        Stats
 	statsMutex   sync.RWMutex
+	sfGroup      singleflight.Group
 }
 
 // New creates a new SyncedCache instance.
@@ -104,40 +107,54 @@ func (sc *SyncedCache) Get(ctx context.Context, key string) (any, bool) {
 		sc.logger.Debug("Get: not found in local cache, checking remote", "key", key)
 	}
 
-	// Fallback to Redis
-	data, err := sc.store.Get(ctx, key)
-	if err != nil {
-		sc.recordRemoteMiss()
+	// Fallback to Redis using singleflight to prevent thundering herd.
+	// Multiple concurrent requests for the same key will share a single Redis query.
+	result, _, _ := sc.sfGroup.Do(key, func() (any, error) {
+		// Double-check local cache inside singleflight in case another goroutine
+		// populated it while we were waiting for the singleflight lock.
+		if value, found := sc.local.Get(key); found {
+			if sc.options.DebugMode {
+				sc.logger.Debug("Get: found in local cache during singleflight", "key", key)
+			}
+			return value, nil
+		}
+
+		data, err := sc.store.Get(ctx, key)
+		if err != nil {
+			sc.recordRemoteMiss()
+			if sc.options.DebugMode {
+				sc.logger.Debug("Get: not found in remote cache", "key", key, "error", err)
+			}
+			return nil, nil
+		}
+
+		sc.recordRemoteHit()
 		if sc.options.DebugMode {
-			sc.logger.Debug("Get: not found in remote cache", "key", key, "error", err)
+			sc.logger.Debug("Get: found in remote cache", "key", key)
 		}
-		return nil, false
-	}
 
-	sc.recordRemoteHit()
-	if sc.options.DebugMode {
-		sc.logger.Debug("Get: found in remote cache", "key", key)
-	}
-
-	// Deserialize
-	var result any
-	if err := sc.serializer.Unmarshal(data, &result); err != nil {
-		if sc.options.OnError != nil {
-			sc.options.OnError(err)
+		// Deserialize
+		var val any
+		if err := sc.serializer.Unmarshal(data, &val); err != nil {
+			if sc.options.OnError != nil {
+				sc.options.OnError(err)
+			}
+			if sc.options.DebugMode {
+				sc.logger.Error("Get: deserialization failed", "key", key, "error", err)
+			}
+			return nil, nil
 		}
+
+		// Populate local cache
+		sc.local.Set(key, val, 1)
 		if sc.options.DebugMode {
-			sc.logger.Error("Get: deserialization failed", "key", key, "error", err)
+			sc.logger.Debug("Get: populated local cache", "key", key)
 		}
-		return nil, false
-	}
 
-	// Populate local cache
-	sc.local.Set(key, result, 1)
-	if sc.options.DebugMode {
-		sc.logger.Debug("Get: populated local cache", "key", key)
-	}
+		return val, nil
+	})
 
-	return result, true
+	return result, result != nil
 }
 
 // Set stores a value in the cache and propagates it to other pods.
