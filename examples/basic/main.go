@@ -46,6 +46,21 @@ func main() {
 	}
 	defer c2.Close()
 
+	// Simulate another pod joining (in real scenario, this would be another pod)
+	fmt.Println("\nCreating Pod-3 (simulating another pod in the cluster)...")
+	cacheCfg2 := cache.DefaultOptions()
+	cacheCfg2.PodID = "example-pod-3"
+	cacheCfg2.RedisAddr = "localhost:6379"
+	cacheCfg2.DebugMode = true
+	cacheCfg2.Logger = cache.NewConsoleLogger("pod-3")
+	c3, err := cache.New(cacheCfg2)
+	if err != nil {
+		log.Fatalf("Failed to create second cache: %v", err)
+	}
+	defer c3.Close()
+	fmt.Println("  Pod-3: Initialized and subscribed to synchronization events")
+
+	// Context with timeout for operations
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -84,19 +99,12 @@ func main() {
 	}
 	fmt.Printf("  Pod-1: Set %s = %+v\n", key2, user2)
 
-	// Simulate another pod joining (in real scenario, this would be another pod)
-	fmt.Println("\nCreating Pod-3 (simulating another pod in the cluster)...")
-	cacheCfg2 := cache.DefaultOptions()
-	cacheCfg2.PodID = "example-pod-3"
-	cacheCfg2.RedisAddr = "localhost:6379"
-	cacheCfg2.DebugMode = true
-	cacheCfg2.Logger = cache.NewConsoleLogger("pod-3")
-	c3, err := cache.New(cacheCfg2)
-	if err != nil {
-		log.Fatalf("Failed to create second cache: %v", err)
+	// Pod-2 fetches the value (should come from local cache)
+	fmt.Println("\nPod-2 fetches the value (should come from local cache)...")
+	value1, found1 := c2.Get(ctx, key2)
+	if found1 {
+		fmt.Printf("  Pod-2: Got %s = %+v\n", key2, value1)
 	}
-	defer c3.Close()
-	fmt.Println("  Pod-3: Initialized and subscribed to synchronization events")
 
 	// Pod-3 fetches from Redis (local cache is empty, so it's a remote hit)
 	fmt.Println("\nPod-3 fetches the value (should come from Redis)...")
@@ -128,6 +136,16 @@ func main() {
 		fmt.Printf("  Pod-1: Got %s = %+v\n", key2, value3)
 		if userVal, ok := value3.(User); ok && userVal.Name == "Jane Smith-Updated" {
 			fmt.Println("  ✓ Value propagation successful! Pod-1 got the updated value from local cache.")
+		}
+	}
+
+	// Now Pod-2 should also have the updated value in local cache
+	fmt.Println("\nPod-2 fetches the value (should be in local cache from propagation)...")
+	value5, found5 := c2.Get(ctx, key2)
+	if found5 {
+		fmt.Printf("  Pod-2: Got %s = %+v\n", key2, value5)
+		if userVal, ok := value5.(User); ok && userVal.Name == "Jane Smith-Updated" {
+			fmt.Println("  ✓ Value propagation successful! Pod-2 got the updated value from local cache.")
 		}
 	}
 
@@ -191,12 +209,28 @@ func main() {
 	// Example 5: Statistics
 	fmt.Println("\n=== Example 5: Statistics ===")
 	stats := c.Stats()
-	fmt.Printf("Cache Statistics:\n")
+	fmt.Printf("Cache Statistics: pod - 1\n")
 	fmt.Printf("  Local Hits:      %d\n", stats.LocalHits)
 	fmt.Printf("  Local Misses:    %d\n", stats.LocalMisses)
 	fmt.Printf("  Remote Hits:     %d\n", stats.RemoteHits)
 	fmt.Printf("  Remote Misses:   %d\n", stats.RemoteMisses)
 	fmt.Printf("  Invalidations:   %d\n", stats.Invalidations)
+
+	stats2 := c2.Stats()
+	fmt.Printf("\nCache Statistics: pod - 2\n")
+	fmt.Printf("  Local Hits:      %d\n", stats2.LocalHits)
+	fmt.Printf("  Local Misses:    %d\n", stats2.LocalMisses)
+	fmt.Printf("  Remote Hits:     %d\n", stats2.RemoteHits)
+	fmt.Printf("  Remote Misses:   %d\n", stats2.RemoteMisses)
+	fmt.Printf("  Invalidations:   %d\n", stats2.Invalidations)
+
+	stats3 := c3.Stats()
+	fmt.Printf("\nCache Statistics: pod - 3\n")
+	fmt.Printf("  Local Hits:      %d\n", stats3.LocalHits)
+	fmt.Printf("  Local Misses:    %d\n", stats3.LocalMisses)
+	fmt.Printf("  Remote Hits:     %d\n", stats3.RemoteHits)
+	fmt.Printf("  Remote Misses:   %d\n", stats3.RemoteMisses)
+	fmt.Printf("  Invalidations:   %d\n", stats3.Invalidations)
 
 	fmt.Println("\n=== Example Complete ===")
 	fmt.Println("\nKey Takeaways:")
