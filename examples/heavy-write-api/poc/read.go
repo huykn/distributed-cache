@@ -544,7 +544,7 @@ func (p *ReadPod) handleInvalidation(event types.InvalidationEvent) any {
 // HandleSpin - lock-free voucher pop operation (hot path, zero allocation)
 // Flow: pop from unified buffer -> add to spin history queue (memory) -> return voucher to user
 // Background: spin history queue -> bulk write to Redis for user paging
-func (p *ReadPod) HandleSpin(userID string) (voucherCode string, isValid bool, ok bool) {
+func (p *ReadPod) HandleSpin(userID string) (voucherCode string, isValid, ok bool) {
 	// Lock-free health check
 	if atomic.LoadInt32(&p.IsHealthy) == 0 || atomic.LoadInt32(&p.killed) == 1 {
 		return "", false, false

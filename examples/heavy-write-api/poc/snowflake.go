@@ -83,7 +83,7 @@ func ParseVoucherBytes(data []byte) (code string, isValid bool) {
 
 // ValidateVoucherCode performs stateless validation by decoding the snowflake ID.
 // No database query needed - voucher validity is encoded in the ID itself.
-func ValidateVoucherCode(code string) (isValid bool, voucherID uint32, pin uint32, err error) {
+func ValidateVoucherCode(code string) (isValid bool, voucherID, pin uint32, err error) {
 	snowflakeID, err := DecodeBase36(code)
 	if err != nil {
 		return false, 0, 0, err

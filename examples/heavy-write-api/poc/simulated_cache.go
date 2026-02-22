@@ -8,9 +8,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/redis/go-redis/v9"
+
 	"github.com/huykn/distributed-cache/cache"
 	"github.com/huykn/distributed-cache/types"
-	"github.com/redis/go-redis/v9"
 )
 
 // Default Redis configuration
@@ -218,7 +219,7 @@ func (b *GlobalBus) Clear() {
 }
 
 // NewSimulatedCache creates a new simulated cache pod using distributed-cache library.
-func NewSimulatedCache(podID string, invalidationChannel string, onSetLocal func(event types.InvalidationEvent) any) (*SimulatedCache, error) {
+func NewSimulatedCache(podID, invalidationChannel string, onSetLocal func(event types.InvalidationEvent) any) (*SimulatedCache, error) {
 	localFactory := cache.NewLFUCacheFactory(cache.DefaultLocalCacheConfig())
 	local, err := localFactory.Create()
 	if err != nil {
