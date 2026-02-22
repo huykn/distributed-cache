@@ -1,10 +1,10 @@
-# Heavy-Write API — High-Level Design
+# Heavy-Write API - High-Level Design
 
 ## 1. Overview
 
 The Heavy-Write API is a high-throughput voucher distribution system that **transforms a write-heavy workload into a read-heavy workload**. The core insight is: vouchers are pre-generated and pre-distributed to read pods, so the user-facing "write" (claiming a voucher) becomes a lock-free, zero-I/O **read from local memory**.
 
-The system handles **1M requests/second across 20 pods** (50K req/s per pod). When the rate exceeds 1M+1 req/s in a given minute, the system returns empty data — clients understand this as a rate limit signal and retry in the next minute.
+The system handles **1M requests/second across 20 pods** (50K req/s per pod). When the rate exceeds 1M+1 req/s in a given minute, the system returns empty data - clients understand this as a rate limit signal and retry in the next minute.
 
 **Key transformation**: `Heavy Write -> Pre-distribute -> Heavy Read (lock-free, zero I/O)`
 
@@ -13,7 +13,7 @@ The system handles **1M requests/second across 20 pods** (50K req/s per pod). Wh
 | ID | Requirement | Description |
 |----|-------------|-------------|
 | FR-1 | **Voucher Spin (`/spin`)** | Pop a voucher from in-memory cache atomically. Return `voucher_code` + `is_valid` to client with zero I/O cost. |
-| FR-2 | **Voucher Claim (`/claim`)** | Two-level confirmation: (1) background validates voucher for user and writes to Redis, (2) client calls `/claim` to redeem. Stateless validation via snowflake ID — no DB query. |
+| FR-2 | **Voucher Claim (`/claim`)** | Two-level confirmation: (1) background validates voucher for user and writes to Redis, (2) client calls `/claim` to redeem. Stateless validation via snowflake ID - no DB query. |
 | FR-3 | **Batch Distribution** | Worker fetches vouchers from MySQL, pre-serializes to `[]byte`, stores in Redis, and distributes batches to read pods via `distributed-cache` per-pod channels. |
 | FR-4 | **Range-based Assignment** | Each pod serves a deterministic voucher ID range: `[podIndex * vouchersPerPod + 1, (podIndex+1) * vouchersPerPod]`. Auto-calculated from total vouchers and pod count. |
 | FR-5 | **Minute-based Rotation** | Vouchers stored in `[60]MinuteStore` array (0–59). Worker pre-loads next minute. Unused vouchers from `minute-1` migrate to a future minute. |
@@ -22,7 +22,7 @@ The system handles **1M requests/second across 20 pods** (50K req/s per pod). Wh
 | FR-8 | **State Recovery** | New pod restores state from Redis: spin/claim counts, minute store indices, fragment ranges. |
 | FR-9 | **Fragment Management** | When migrating unused vouchers across minutes, track fragmented ID ranges (e.g., `100..999`, `10000..10099`) and persist to Redis for recovery. |
 | FR-10 | **Spin History Paging** | Bulk-write spin results to Redis (per-user lists) for client-side paging of voucher history. |
-| FR-11 | **Rate Limiting** | System-wide cap of 1M req/s (20 pods × 50K). Beyond this, return empty data. Client interprets empty response as "wait for next minute". |
+| FR-11 | **Rate Limiting** | System-wide cap of 1M req/s (20 pods * 50K). Beyond this, return empty data. Client interprets empty response as "wait for next minute". |
 | FR-12 | **Chaos Engineering** | Simulate random pod kills and restarts to validate recovery and redistribution. |
 
 ## 3. Non-Functional Requirements
@@ -35,11 +35,11 @@ The system handles **1M requests/second across 20 pods** (50K req/s per pod). Wh
 | **Availability** | Pod failure recovery | < 10s detection, < 2s takeover |
 | **Scalability** | Horizontal scaling | Linear with pod count (50K/pod) |
 | **Data Volume** | Total vouchers | 10M records in MySQL |
-| **Memory** | Per-pod footprint | ~50K vouchers/minute × ~20 bytes ≈ 1MB active set |
+| **Memory** | Per-pod footprint | ~50K vouchers/minute * ~20 bytes ≈ 1MB active set |
 | **Consistency** | Voucher uniqueness | Atomic pop guarantees no duplicate distribution |
 | **Durability** | State persistence | Redis-backed recovery on pod restart |
-| **Mutex Contention** | Lock-free hot path | Zero mutex on `/spin` — atomic operations only |
-| **CPU Efficiency** | Serialization cost | Zero unmarshal on read path — pre-encoded `[]byte` |
+| **Mutex Contention** | Lock-free hot path | Zero mutex on `/spin` - atomic operations only |
+| **CPU Efficiency** | Serialization cost | Zero unmarshal on read path - pre-encoded `[]byte` |
 
 ## 4. Architecture Diagram
 
@@ -61,7 +61,7 @@ graph TB
     RP1 -->|Heartbeat / Claims| Redis
     RPN -->|Heartbeat / Claims| Redis
 
-    Worker --> Redis[REDIS<br/>- Health Slots ×10<br/>- Voucher Index bytes<br/>- Pod State Backup<br/>- Spin History<br/>- Claim Records]
+    Worker --> Redis[REDIS<br/>- Health Slots *10<br/>- Voucher Index bytes<br/>- Pod State Backup<br/>- Spin History<br/>- Claim Records]
 
     Worker --> MySQL[(MYSQL<br/>voucher table<br/>10M records)]
 
@@ -127,7 +127,7 @@ Uses `distributed-cache` library's `LocalCache` (LFU) + `GlobalBus` (simulates R
 
 ## 6. Data Flow
 
-### 6.1 Write Path — Voucher Pre-Distribution
+### 6.1 Write Path - Voucher Pre-Distribution
 
 ```mermaid
 sequenceDiagram
@@ -151,7 +151,7 @@ sequenceDiagram
     ReadPod->>ReadPod: Build []atomic.Value<br/>Atomic-swap into MinuteStore[nextMinute]
 ```
 
-### 6.2 Read Path — `/spin` (Hot Path, Lock-Free)
+### 6.2 Read Path - `/spin` (Hot Path, Lock-Free)
 
 ```mermaid
 sequenceDiagram
@@ -173,7 +173,7 @@ sequenceDiagram
     MemQueue->>Redis: Bulk flush every 1s / 100 items<br/>RPUSH user:{id}:spins
 ```
 
-### 6.3 Claim Path — `/claim` (Two-Level Confirmation)
+### 6.3 Claim Path - `/claim` (Two-Level Confirmation)
 
 ```mermaid
 sequenceDiagram
@@ -197,7 +197,7 @@ sequenceDiagram
     Worker->>Redis: Persist final state
 ```
 
-### 6.4 Recovery Path — Pod Failure & Restart
+### 6.4 Recovery Path - Pod Failure & Restart
 
 ```mermaid
 sequenceDiagram
@@ -221,7 +221,7 @@ sequenceDiagram
     Worker->>Worker: Pod-3 recovered 
 ```
 
-### 6.5 Minute Migration — Unused Voucher Recycling
+### 6.5 Minute Migration - Unused Voucher Recycling
 
 ```mermaid
 sequenceDiagram
@@ -260,15 +260,15 @@ sequenceDiagram
 
 | Metric | Value | Notes |
 |--------|-------|-------|
-| **System Throughput** | 1M req/s | 20 pods × 50K req/s |
-| **`/spin` Latency (P50)** | < 0.1ms | Atomic load from memory |
-| **`/spin` Latency (P99)** | < 1ms | No I/O, no mutex, no GC pressure |
-| **`/claim` Latency (P99)** | < 5ms | Redis read + write |
+| **System Throughput** | 1M req/s | 20 pods * 50K req/s |
+| **`/spin` Latency (P50)** | < 1ms | Atomic load from memory |
+| **`/spin` Latency (P99)** | < 5ms | No I/O, no mutex, no GC pressure |
+| **`/claim` Latency (P99)** | < 10ms | Redis read + write |
 | **Batch Distribution** | Every 5s | Worker -> Redis -> per-pod channel |
 | **Propagation Latency** | < 100ms | Worker to all pods via pub/sub |
 | **Pod Failure Detection** | 10s | Health slot timeout |
-| **Pod Recovery Time** | < 2s | Restore state from Redis |
-| **Memory per Pod** | ~1–2MB active | 50K vouchers × ~20 bytes per minute |
+| **Pod Recovery Time** | <= 60s | Restore state from Redis |
+| **Memory per Pod** | ~6MB active | 50K vouchers * 60 seconds * ~20 bytes per minute |
 | **Redis Write Rate** | ~500 writes/s per pod | Bulk spin history (100 items/flush) |
 | **MySQL Queries** | Startup only | Re-index if Redis mismatch |
 | **CPU per `/spin`** | ~100ns | Atomic ops + byte parse only |
@@ -283,7 +283,7 @@ Traditional:  DB -> []byte -> Unmarshal -> Object -> Marshal -> []byte -> HTTP R
 Our approach: MinuteStore -> atomic.Value.Load() -> []byte -> HTTP Response
 ```
 
-Vouchers are pre-encoded as `[code][null_separator][is_valid]` bytes at distribution time. The `/spin` hot path never marshals or unmarshals — it reads raw bytes and parses with simple byte scanning.
+Vouchers are pre-encoded as `[code][null_separator][is_valid]` bytes at distribution time. The `/spin` hot path never marshals or unmarshals - it reads raw bytes and parses with simple byte scanning.
 
 ### 9.2 Lock-Free Atomic Pop
 
@@ -328,13 +328,13 @@ Traditional:  Per-spin Redis write -> 50K writes/s per pod
 Our approach: Collect in memory -> flush 100 items/batch -> ~500 writes/s per pod
 ```
 
-Spin results are queued in an in-memory channel. A background goroutine flushes to Redis every 1 second or every 100 items, grouped by user ID. Reduces Redis write pressure by 100×.
+Spin results are queued in an in-memory channel. A background goroutine flushes to Redis every 1 second or every 100 items, grouped by user ID. Reduces Redis write pressure by 100x.
 
 ### 9.7 Minute-Based Fixed Array Storage
 
 ```
 Traditional:  map[string]Voucher with TTL expiry
-Our approach: [60]MinuteStore — fixed array, zero allocation, natural wrap
+Our approach: [60]MinuteStore - fixed array, zero allocation, natural wrap
 ```
 
 The `[60]MinuteStore` array maps directly to clock minutes (0–59). No map lookups, no hash computation, no memory allocation. Minute migration reuses the same slots cyclically.
@@ -347,3 +347,17 @@ Our approach: Empty response -> client knows capacity reached -> wait next minut
 ```
 
 When `atomic.AddInt64(&CurrentIdx, 1) >= Total`, the pod returns empty data. No error codes, no retry headers. The client protocol is simple: empty = wait for next minute. This avoids thundering herd on retry.
+
+## 10. User Guide
+
+### 10.1 Generate data
+
+```bash
+go run ./cmd/generate.go
+```
+
+### 10.2 Run POC
+
+```bash
+go run ./
+```
