@@ -126,7 +126,7 @@ func NewCacheWrapper(c cache.Cache, detector *StaleDetector, podID string, logge
 }
 
 // Set validates version before setting to cache.
-func (cw *CacheWrapper) Set(ctx context.Context, key string, value interface{}) error {
+func (cw *CacheWrapper) Set(ctx context.Context, key string, value any) error {
 	data, ok := value.(*VersionedData)
 	if !ok {
 		return errors.New("value must be *VersionedData")
