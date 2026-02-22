@@ -12,6 +12,7 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
+
 	"github.com/huykn/distributed-cache/types"
 )
 

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"net/http"
 	"os"
 	"os/signal"
 	"sync"
@@ -15,7 +16,6 @@ import (
 	"syscall"
 	"time"
 
-	"net/http"
 	_ "net/http/pprof"
 
 	_ "github.com/go-sql-driver/mysql"

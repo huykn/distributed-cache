@@ -13,9 +13,10 @@ import (
 )
 
 const (
-	ClaimQueueSize      = 50_0000                  // Large enough to avoid dropping claims at high throughput
+	ClaimQueueSize      = 50_000                   // Large enough to avoid dropping claims at high throughput
 	SpinHistoryBulkSize = 1000                     // Bulk write spin history to Redis every N spins
 	bufCap              = int64(PodServeRate * 60) // Exact capacity for one minute
+	MaxFragments        = 100
 )
 
 // SpinResult represents a spin that will be written to Redis for user history
@@ -43,21 +44,45 @@ type FragmentRange struct {
 
 // MinuteStore holds vouchers for a specific minute (lock-free access)
 type MinuteStore struct {
-	Vouchers      []atomic.Value // Each holds []byte - lock-free read
+	Vouchers      []atomic.Value // Each holds []byte - lock-free read (lazy allocated)
 	CurrentIdx    int64          // Atomic index for pop operation
 	Total         int64          // Total vouchers in this minute
 	StartID       int64          // First voucher ID in this store
 	MigratedCount int64          // Tracking: vouchers migrated manually
 	ReceivedCount int64          // Tracking: vouchers received from worker
+	allocated     int32          // Atomic: 1 = buffer allocated
+	allocMu       sync.Mutex     // Protects lazy allocation
 }
 
-func (p *MinuteStore) reset() {
+// ensureAllocated lazily allocates the voucher buffer (only when needed)
+// This reduces memory from 60 * 3M = 180M atomic.Value slots to only active minutes
+func (p *MinuteStore) ensureAllocated() {
+	if atomic.LoadInt32(&p.allocated) == 1 {
+		return
+	}
+	p.allocMu.Lock()
+	defer p.allocMu.Unlock()
+	if p.allocated == 1 {
+		return
+	}
 	p.Vouchers = make([]atomic.Value, bufCap)
-	p.CurrentIdx = 0
-	p.Total = 0
+	atomic.StoreInt32(&p.allocated, 1)
+}
+
+// release deallocates the voucher buffer to free memory
+func (p *MinuteStore) release() {
+	p.allocMu.Lock()
+	defer p.allocMu.Unlock()
+	if atomic.LoadInt32(&p.allocated) == 0 {
+		return
+	}
+	p.Vouchers = nil
+	atomic.StoreInt32(&p.allocated, 0)
+	atomic.StoreInt64(&p.CurrentIdx, 0)
+	atomic.StoreInt64(&p.Total, 0)
 	p.StartID = 0
-	p.MigratedCount = 0
-	p.ReceivedCount = 0
+	atomic.StoreInt64(&p.MigratedCount, 0)
+	atomic.StoreInt64(&p.ReceivedCount, 0)
 }
 
 // ReadPod represents a read pod instance with lock-free voucher serving
@@ -119,7 +144,7 @@ func NewReadPod(podIndex, totalPods int, totalVouchers, startID, endID int64) *R
 	// Initialize minute stores
 	for i := range 60 {
 		pod.MinuteStores[i] = MinuteStore{
-			Vouchers:   make([]atomic.Value, bufCap),
+			// Vouchers: lazily allocated via ensureAllocated() -> initial memory estimate: 60 items * 3M * 16 bytes = 2.88GB
 			CurrentIdx: 0,
 			Total:      0,
 		}
@@ -247,12 +272,6 @@ func (p *ReadPod) spinHistoryBulkWriter(ctx context.Context) {
 	}
 }
 
-var poolHistory = sync.Pool{
-	New: func() any {
-		return make([]SpinResult, 0, SpinHistoryBulkSize)
-	},
-}
-
 // flushSpinHistory bulk writes spin history to Redis for user paging
 func (p *ReadPod) flushSpinHistory() {
 	p.spinHistoryMu.Lock()
@@ -281,13 +300,12 @@ func (p *ReadPod) flushSpinHistory() {
 		// Append to existing history
 		var history []SpinResult
 		if data, ok := p.Cache.globalBus.Get(key); ok {
-			history = poolHistory.Get().([]SpinResult)
-			json.Unmarshal(data, &history)
+			// Unmarshal into local slice (not pooled)
+			_ = json.Unmarshal(data, &history)
 		}
 		history = append(history, spins...)
 		data, _ := json.Marshal(history)
 		p.Cache.globalBus.Set(key, data)
-		poolHistory.Put(history)
 	}
 
 	// Only log flush periodically to reduce noise at high throughput
@@ -434,8 +452,13 @@ func (p *ReadPod) migrateOldMinuteData() {
 
 	// Nothing to compact: no consumed vouchers at the front
 	if size == 0 || idx >= size {
-		atomic.StoreInt64(&storePrev.CurrentIdx, 0)
-		atomic.StoreInt64(&storePrev.Total, 0)
+		// Release previous minute's buffer to free memory
+		storePrev.release()
+		return
+	}
+
+	// Check if previous store has allocated buffer
+	if atomic.LoadInt32(&storePrev.allocated) == 0 {
 		return
 	}
 
@@ -444,8 +467,12 @@ func (p *ReadPod) migrateOldMinuteData() {
 	log.Printf("[%s] Migrating %d unused vouchers from minute %d to minute %d",
 		p.ID, unconsumed, prevMin, targetMin)
 
-	// Track fragment for recovery
+	// Track fragment for recovery (with cap to prevent unbounded growth)
 	p.fragmentMu.Lock()
+	if len(p.Fragments) >= MaxFragments {
+		// Remove oldest fragments to make room
+		p.Fragments = p.Fragments[len(p.Fragments)-MaxFragments+1:]
+	}
 	p.Fragments = append(p.Fragments, FragmentRange{
 		Start: storePrev.StartID + idx,
 		End:   storePrev.StartID + size - 1,
@@ -454,9 +481,12 @@ func (p *ReadPod) migrateOldMinuteData() {
 	p.fragmentMu.Unlock()
 	p.Cache.globalBus.Set(fmt.Sprintf("pod-fragments:%s", p.ID), fragmentData)
 
+	// Ensure target store has buffer allocated
+	storeTarget.ensureAllocated()
+
 	// Move unconsumed vouchers to target minute store
 	targetWriteStart := atomic.LoadInt64(&storeTarget.Total)
-	bufCap := int64(len(storeTarget.Vouchers))
+	targetBufCap := int64(len(storeTarget.Vouchers))
 
 	validCount := int64(0)
 	for i := range unconsumed {
@@ -464,14 +494,14 @@ func (p *ReadPod) migrateOldMinuteData() {
 		if val != nil {
 			if vBytes, ok := val.([]byte); ok && len(vBytes) > 0 {
 				pos := targetWriteStart + validCount
-				if pos < bufCap {
+				if pos < targetBufCap {
 					storeTarget.Vouchers[pos].Store(vBytes)
 					validCount++
 				}
 			}
 		}
 		// Clear old to help GC
-		storePrev.Vouchers[idx+i].Store([]byte{})
+		storePrev.Vouchers[idx+i].Store([]byte(nil))
 	}
 
 	atomic.AddInt64(&storeTarget.MigratedCount, validCount)
@@ -480,12 +510,8 @@ func (p *ReadPod) migrateOldMinuteData() {
 		storeTarget.StartID = storePrev.StartID + idx
 	}
 
-	// Reset prev minute store
-	atomic.StoreInt64(&storePrev.CurrentIdx, 0)
-	atomic.StoreInt64(&storePrev.Total, 0)
-	atomic.StoreInt64(&storePrev.MigratedCount, 0)
-	atomic.StoreInt64(&storePrev.ReceivedCount, 0)
-	storePrev.reset()
+	// Release previous minute store's buffer to free memory
+	storePrev.release()
 
 	log.Printf("[%s] Migration complete: %d vouchers moved to minute %d (total migrated: %d, received: %d, total: %d)",
 		p.ID, unconsumed, targetMin, atomic.LoadInt64(&storeTarget.MigratedCount), atomic.LoadInt64(&storeTarget.ReceivedCount), atomic.LoadInt64(&storeTarget.Total))
@@ -511,8 +537,11 @@ func (p *ReadPod) handleInvalidation(event types.InvalidationEvent) any {
 	minuteKey := batch.MinuteKey
 	store := &p.MinuteStores[minuteKey]
 
+	// Lazily allocate buffer when first batch arrives for this minute
+	store.ensureAllocated()
+
 	writeStart := atomic.LoadInt64(&store.Total)
-	bufCap := int64(len(store.Vouchers))
+	storeBufCap := int64(len(store.Vouchers))
 
 	// If this is the first write to this minute store, set StartID
 	if writeStart == 0 {
@@ -524,7 +553,7 @@ func (p *ReadPod) handleInvalidation(event types.InvalidationEvent) any {
 	for _, v := range batch.Vouchers {
 		if len(v) > 0 {
 			pos := writeStart + validCount
-			if pos < bufCap {
+			if pos < storeBufCap {
 				store.Vouchers[pos].Store(v)
 				validCount++
 			}
@@ -532,7 +561,7 @@ func (p *ReadPod) handleInvalidation(event types.InvalidationEvent) any {
 	}
 
 	atomic.AddInt64(&store.ReceivedCount, validCount)
-	newSize := min(writeStart+validCount, bufCap)
+	newSize := min(writeStart+validCount, storeBufCap)
 	atomic.StoreInt64(&store.Total, newSize)
 
 	log.Printf("[%s] Loaded %d vouchers from worker to minute %d (total migrated: %d, received: %d, total: %d/%d, startID: %d)",
@@ -544,7 +573,7 @@ func (p *ReadPod) handleInvalidation(event types.InvalidationEvent) any {
 // HandleSpin - lock-free voucher pop operation (hot path, zero allocation)
 // Flow: pop from unified buffer -> add to spin history queue (memory) -> return voucher to user
 // Background: spin history queue -> bulk write to Redis for user paging
-func (p *ReadPod) HandleSpin(userID string) (voucherCode string, isValid bool, ok bool) {
+func (p *ReadPod) HandleSpin(userID string) (voucherCode string, isValid, ok bool) {
 	// Lock-free health check
 	if atomic.LoadInt32(&p.IsHealthy) == 0 || atomic.LoadInt32(&p.killed) == 1 {
 		return "", false, false
@@ -553,6 +582,11 @@ func (p *ReadPod) HandleSpin(userID string) (voucherCode string, isValid bool, o
 	// Claim next voucher from current minute store using lock-free AddInt64
 	currentMin := time.Now().Minute()
 	store := &p.MinuteStores[currentMin]
+
+	// Check if store has allocated buffer (fast path: no lock needed for read)
+	if atomic.LoadInt32(&store.allocated) == 0 {
+		return "", false, false
+	}
 
 	idx := atomic.AddInt64(&store.CurrentIdx, 1) - 1
 	size := atomic.LoadInt64(&store.Total)
@@ -565,11 +599,23 @@ func (p *ReadPod) HandleSpin(userID string) (voucherCode string, isValid bool, o
 		return "", false, false
 	}
 
+	// Bounds check for safety
+	if idx < 0 || idx >= int64(len(store.Vouchers)) {
+		return "", false, false
+	}
+
 	val := store.Vouchers[idx].Load()
 	if val == nil {
 		return "", false, false
 	}
-	voucherBytes := val.([]byte)
+	voucherBytes, ok := val.([]byte)
+	if !ok || len(voucherBytes) == 0 {
+		return "", false, false
+	}
+
+	// MEMORY FIX: Clear the slot after reading to help GC release the []byte
+	// This prevents voucher bytes from accumulating in memory
+	store.Vouchers[idx].Store([]byte(nil))
 
 	// D-8: Increment SpinCount only after successful voucher fetch
 	atomic.AddInt64(&p.SpinCount, 1)
@@ -794,8 +840,11 @@ func (p *ReadPod) RestoreStateFromRedis() {
 			targetMin := (time.Now().Minute() + minOffset) % 60
 			store := &p.MinuteStores[targetMin]
 
-			bufCap := int64(len(store.Vouchers))
-			availableSpace := bufCap - atomic.LoadInt64(&store.Total)
+			// Lazily allocate buffer for this minute store
+			store.ensureAllocated()
+
+			storeBufCap := int64(len(store.Vouchers))
+			availableSpace := storeBufCap - atomic.LoadInt64(&store.Total)
 
 			if availableSpace <= 0 {
 				loaded += int64(PodServeRate * 60)

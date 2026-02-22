@@ -12,7 +12,7 @@
 
 A high-performance, distributed in-memory cache library for Go that synchronizes local LFU/LRU caches across multiple service instances using Redis as a backing store and pub/sub for set/invalidation events.
 
-**Version**: v1.0.3
+**Version**: v1.0.4
 
 ## Features
 
