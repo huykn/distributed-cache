@@ -5,6 +5,7 @@ __debug_bin*
 .idea/*
 .local/*
 .qodo
+.vscode
 
 tmp/
 bin/
